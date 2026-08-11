@@ -1,0 +1,40 @@
+{
+  "agent:main:telegram:dm:1001": {
+    "session_key": "agent:main:telegram:dm:1001",
+    "session_id": "20260801_100000_abcdef",
+    "created_at": "2026-08-01T10:00:00",
+    "updated_at": "2026-08-01T11:00:00",
+    "display_name": "user-1001",
+    "platform": "telegram",
+    "chat_type": "dm",
+    "input_tokens": 151127,
+    "output_tokens": 151127,
+    "cache_read_tokens": 1691204,
+    "cache_write_tokens": 0,
+    "total_tokens": 1993458,
+    "last_prompt_tokens": 87321,
+    "estimated_cost_usd": 0.82,
+    "cost_status": "estimated",
+    "expiry_finalized": true,
+    "suspended": false
+  },
+  "agent:main:telegram:dm:1002": {
+    "session_key": "agent:main:telegram:dm:1002",
+    "session_id": "20260802_090000_123456",
+    "created_at": "2026-08-02T09:00:00",
+    "updated_at": "2026-08-02T09:37:00",
+    "display_name": "user-1002",
+    "platform": "telegram",
+    "chat_type": "dm",
+    "input_tokens": 42979,
+    "output_tokens": 5120,
+    "cache_read_tokens": 30000,
+    "cache_write_tokens": 0,
+    "total_tokens": 48099,
+    "last_prompt_tokens": 42979,
+    "estimated_cost_usd": 0.0,
+    "cost_status": "unknown",
+    "expiry_finalized": false,
+    "suspended": false
+  }
+}
