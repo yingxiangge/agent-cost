@@ -7,17 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-13
+
+First public release.
+
 ### Added
 - GitHub Actions CI running pytest on Python 3.10 / 3.11 / 3.12, plus a CLI
   smoke test against the bundled example sessions.
 - Contributor documentation (`CONTRIBUTING.md`), issue and pull request
   templates.
-
-## [0.1.0] - 2026-08-11
-
-First public release.
-
-### Added
 - `agent-cost inspect` — per-session token, cache and cost breakdown.
 - `agent-cost analyze` — context growth curve, context-source attribution
   (tool output / instructions / assistant / developer), compaction detection,
