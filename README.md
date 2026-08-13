@@ -1,5 +1,9 @@
 # agent-cost
 
+[![CI](https://github.com/yingxiangge/agent-cost/actions/workflows/ci.yml/badge.svg)](https://github.com/yingxiangge/agent-cost/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 **Token, cache and context observability for AI coding agents.**
 
 AI coding agents are expensive not because they have no cache — they usually
@@ -91,6 +95,13 @@ table locally before trusting dollar figures.
 - `agent-cost watch`: budget thresholds with warnings before a session blows up
 - OpenCode / Claude Code session parsing
 - Tool-call-level cost attribution when providers expose per-request usage
+
+## Contributing
+
+Bug reports are especially welcome — particularly a session that parses
+incorrectly. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, tests, and how to
+add support for a new session format. Please never attach a raw session file to
+an issue; strip it first.
 
 ## Security
 
