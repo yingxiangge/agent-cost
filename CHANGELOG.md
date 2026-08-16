@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Unknown models are no longer priced as DeepSeek.** `estimate_cost` fell back
+  to the DeepSeek rate card for any model missing from the table and still
+  reported the result as `estimated`, so sessions on unlisted models — including
+  every current Claude model — were understated by roughly 13x while looking
+  authoritative. Unpriced sessions now report `unknown` / `n/a`, are excluded
+  from dollar totals, and are counted in the report footer.
+- **GPT-5 rates corrected** from $15/$60 to $1.25/$10 per 1M tokens. Anything
+  resolving through that entry (`gpt-5-codex`) was overstated by about 17x.
+- **Model resolution is deterministic.** The previous bidirectional substring
+  match (`key in name or name in key`) returned whichever table entry came first
+  in dict order. Resolution is now exact match, then longest prefix, so
+  `gpt-5-mini` is never priced as `gpt-5`.
+- **`--pricing` merges instead of replacing.** Overriding one model previously
+  discarded the entire built-in table, leaving every other model unpriced.
+- **OpenCode no longer double-counts cached tokens.** `prompt_tokens` (OpenAI
+  semantics) already includes `cached_tokens`, but both were added to the totals.
+  The bundled example reported 14,530 tokens at a 45.4% hit rate; the correct
+  figures are 8,130 and 83.1%. `input_tokens` (Anthropic semantics) is still
+  taken as-is. Two tests had this bug baked into their assertions and were
+  corrected.
+
+### Changed
+- OpenCode support is documented as **experimental**: it parses a JSON export
+  shape, not the SQLite session store current OpenCode actually writes.
+- Added `pricing.example.json` as a template for supplying your own rate cards.
+
 ### Added
 - `agent-cost compare` command for cross-agent and multi-session comparison,
   outputting side-by-side token totals, cache efficiency rates, tool calls, and

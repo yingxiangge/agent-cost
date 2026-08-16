@@ -8,6 +8,16 @@ def _num(value: int) -> str:
     return f"{value:,}"
 
 
+def _usd(cost: float, status: str, width: int = 0) -> str:
+    """Render a dollar figure, or `n/a` when the model has no rate card.
+
+    A session with an unknown model must never render as `0.00`: that reads as
+    "this was free" instead of "this was not priced".
+    """
+    text = "n/a" if status == "unknown" else f"{cost:.2f}"
+    return f"{text:>{width}}" if width else text
+
+
 def format_inspect(stats: SessionStats, cost_override: float | None = None) -> str:
     lines = [
         "Agent Session",
@@ -43,7 +53,11 @@ def format_inspect(stats: SessionStats, cost_override: float | None = None) -> s
     if stats.compaction_events:
         lines.append(f"Compactions       {stats.compaction_events}")
     cost = cost_override if cost_override is not None else stats.estimated_cost_usd
-    lines.append(f"Estimated Cost    ${cost:.2f}  ({stats.cost_status})")
+    if stats.cost_status == "unknown":
+        hint = f"no rate card for model '{stats.model}'" if stats.model else "model not recorded in session"
+        lines.append(f"Estimated Cost    n/a  ({hint}; set one with --pricing)")
+    else:
+        lines.append(f"Estimated Cost    ${cost:.2f}  ({stats.cost_status})")
     return "\n".join(lines)
 
 
@@ -84,8 +98,12 @@ def format_stats_table(rows: list[SessionStats]) -> str:
         key = r.session_key[:48] if r.session_key else "?"
         lines.append(
             f"{r.agent:<12} {_num(r.total_tokens):>14} {r.cache_hit_rate*100:>8.1f}% "
-            f"{r.tool_calls:>11} {r.estimated_cost_usd:>10.2f}  {key}"
+            f"{r.tool_calls:>11} {_usd(r.estimated_cost_usd, r.cost_status, 10)}  {key}"
         )
+    unpriced = sum(1 for r in rows if r.cost_status == "unknown")
+    if unpriced:
+        lines.append("")
+        lines.append(f"n/a = no rate card for that model ({unpriced} of {len(rows)}); set one with --pricing.")
     return "\n".join(lines)
 
 
@@ -101,15 +119,28 @@ def format_compare(result: CompareResult, by_agent: bool = True) -> str:
     lines.append("-" * len(header))
 
     for name, s in sorted(result.agent_summaries.items(), key=lambda x: x[1].total_tokens, reverse=True):
+        if s.unpriced_sessions >= s.session_count:
+            cost_cell, avg_cell = f"{'n/a':>10}", f"{'n/a':>11}"
+        elif s.unpriced_sessions:
+            # Partial coverage: the total is real but incomplete.
+            cost_cell, avg_cell = f"{s.estimated_cost_usd:>9.2f}*", f"{s.avg_cost_per_session:>11.2f}"
+        else:
+            cost_cell, avg_cell = f"{s.estimated_cost_usd:>10.2f}", f"{s.avg_cost_per_session:>11.2f}"
         lines.append(
             f"{name:<14} {s.session_count:>8} {_num(s.total_tokens):>14} {s.cache_hit_rate*100:>8.1f}% "
-            f"{s.tool_calls:>7} {s.estimated_cost_usd:>10.2f} {s.avg_cost_per_session:>11.2f}"
+            f"{s.tool_calls:>7} {cost_cell} {avg_cell}"
         )
 
     lines.append("-" * len(header))
+    if result.unpriced_sessions >= result.total_sessions:
+        total_cell = f"{'n/a':>10}"
+    elif result.unpriced_sessions:
+        total_cell = f"{result.total_cost_usd:>9.2f}*"
+    else:
+        total_cell = f"{result.total_cost_usd:>10.2f}"
     lines.append(
         f"{'TOTAL':<14} {result.total_sessions:>8} {_num(result.total_tokens):>14} "
-        f"{'':>9} {'':>7} {result.total_cost_usd:>10.2f}"
+        f"{'':>9} {'':>7} {total_cell}"
     )
     lines.append("")
 
@@ -123,8 +154,15 @@ def format_compare(result: CompareResult, by_agent: bool = True) -> str:
             key = r.session_key[:24] if r.session_key else "?"
             lines.append(
                 f"{r.agent:<12} {m:<20} {_num(r.total_tokens):>12} {r.cache_hit_rate*100:>8.1f}% "
-                f"{r.estimated_cost_usd:>9.2f}  {key}"
+                f"{_usd(r.estimated_cost_usd, r.cost_status, 9)}  {key}"
             )
+        lines.append("")
+
+    if result.unpriced_sessions:
+        lines.append(
+            f"n/a / * = model has no rate card, excluded from dollar totals "
+            f"({result.unpriced_sessions} of {result.total_sessions} sessions)."
+        )
         lines.append("")
 
     # Key Insights

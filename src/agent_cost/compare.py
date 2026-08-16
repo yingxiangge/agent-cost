@@ -19,6 +19,7 @@ class AgentSummary:
     turns: int = 0
     tool_calls: int = 0
     compaction_events: int = 0
+    unpriced_sessions: int = 0
 
     @property
     def prompt_tokens(self) -> int:
@@ -46,6 +47,7 @@ class CompareResult:
     total_tokens: int
     total_cost_usd: float
     total_cache_savings_usd: float
+    unpriced_sessions: int = 0
     insights: list[str] = field(default_factory=list)
 
 
@@ -83,6 +85,8 @@ def compare_sessions(sessions: list[SessionStats], custom_pricing: dict | None =
         summary.turns += s.turns
         summary.tool_calls += s.tool_calls
         summary.compaction_events += s.compaction_events
+        if s.cost_status == "unknown":
+            summary.unpriced_sessions += 1
 
         total_tokens += s.total_tokens
         total_cost += s.estimated_cost_usd
@@ -122,6 +126,13 @@ def compare_sessions(sessions: list[SessionStats], custom_pricing: dict | None =
         if total_savings > 0:
             insights.append(f"Prompt caching saved approx. ${total_savings:.2f} across analyzed sessions.")
 
+    unpriced = sum(1 for s in sessions if s.cost_status == "unknown")
+    if unpriced:
+        insights.append(
+            f"{unpriced} of {len(sessions)} sessions have no rate card and are excluded from "
+            f"every dollar figure above. Supply rates with --pricing to include them."
+        )
+
     return CompareResult(
         sessions=sessions,
         agent_summaries=summaries,
@@ -129,5 +140,6 @@ def compare_sessions(sessions: list[SessionStats], custom_pricing: dict | None =
         total_tokens=total_tokens,
         total_cost_usd=total_cost,
         total_cache_savings_usd=total_savings,
+        unpriced_sessions=unpriced,
         insights=insights,
     )

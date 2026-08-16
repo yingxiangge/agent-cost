@@ -10,6 +10,31 @@ def _chars(text: object) -> int:
     return len(str(text or ""))
 
 
+def _read_usage(usage: dict) -> tuple[int, int, int, int]:
+    """Normalise a usage dict to (uncached_input, output, cache_read, cache_write).
+
+    Field names carry different semantics and must not be mixed:
+
+    - OpenAI style: `prompt_tokens` ALREADY INCLUDES `cached_tokens`, so the
+      uncached input is `prompt_tokens - cached_tokens`. Adding both would
+      double-count the cached prefix and understate the cache hit rate.
+    - Anthropic style: `input_tokens` EXCLUDES `cache_read_tokens`, so it is
+      used as-is.
+    """
+    cached = int(usage.get("cached_tokens") or usage.get("cache_read_tokens") or 0)
+    cache_write = int(usage.get("cache_write_tokens") or 0)
+    out = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+
+    if "prompt_tokens" in usage:
+        # OpenAI semantics: subtract the cached prefix out of the prompt total.
+        inp = max(0, int(usage.get("prompt_tokens") or 0) - cached)
+    else:
+        # Anthropic semantics: input is already the uncached remainder.
+        inp = int(usage.get("input_tokens") or 0)
+
+    return inp, out, cached, cache_write
+
+
 def parse_opencode_session(path: str | Path) -> SessionStats:
     """Parse an OpenCode session log (JSON or JSONL) into SessionStats.
 
@@ -65,10 +90,7 @@ def _process_opencode_event(event: dict, stats: SessionStats) -> None:
 
     usage = event.get("usage")
     if isinstance(usage, dict):
-        inp = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
-        out = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
-        cached = int(usage.get("cached_tokens") or usage.get("cache_read_tokens") or 0)
-        cache_write = int(usage.get("cache_write_tokens") or 0)
+        inp, out, cached, cache_write = _read_usage(usage)
 
         stats.input_tokens += inp
         stats.output_tokens += out
@@ -96,11 +118,11 @@ def _parse_opencode_dict(data: dict, stats: SessionStats) -> SessionStats:
 
     # Top-level aggregate usage fallback if steps didn't have per-turn usage
     if stats.input_tokens == 0 and "usage" in data and isinstance(data["usage"], dict):
-        u = data["usage"]
-        stats.input_tokens = int(u.get("prompt_tokens") or u.get("input_tokens") or 0)
-        stats.output_tokens = int(u.get("completion_tokens") or u.get("output_tokens") or 0)
-        stats.cache_read_tokens = int(u.get("cached_tokens") or u.get("cache_read_tokens") or 0)
-        stats.cache_write_tokens = int(u.get("cache_write_tokens") or 0)
+        inp, out, cached, cache_write = _read_usage(data["usage"])
+        stats.input_tokens = inp
+        stats.output_tokens = out
+        stats.cache_read_tokens = cached
+        stats.cache_write_tokens = cache_write
         if stats.turns == 0:
             stats.turns = len(steps) if steps else 1
     return stats
