@@ -108,6 +108,9 @@ def main(argv: list[str] | None = None) -> int:
                 "total_tokens": result.total_tokens,
                 "total_cost_usd": result.total_cost_usd,
                 "total_cache_savings_usd": result.total_cache_savings_usd,
+                # Dollar totals cover only the priced sessions; this says how many
+                # were left out so a consumer never reads them as complete.
+                "unpriced_sessions": result.unpriced_sessions,
                 "insights": result.insights,
                 "agents": {
                     k: dataclasses.asdict(v) for k, v in result.agent_summaries.items()
