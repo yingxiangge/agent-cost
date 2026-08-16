@@ -1,0 +1,5 @@
+{"session_id": "claude-sanitized-001", "created_at": "2026-08-16T10:00:00Z", "cwd": "/workspace/sample"}
+{"type": "user", "role": "user", "content": "Refactor the database queries"}
+{"type": "assistant", "role": "assistant", "model": "claude-3-5-sonnet-20241022", "usage": {"input_tokens": 1250, "output_tokens": 180, "cache_read_input_tokens": 4200, "cache_creation_input_tokens": 250}, "content": [{"type": "tool_use", "name": "FileEdit", "input": {"path": "db.py"}}]}
+{"type": "tool_result", "content": "Updated 12 lines successfully."}
+{"type": "assistant", "role": "assistant", "model": "claude-3-5-sonnet-20241022", "usage": {"input_tokens": 1400, "output_tokens": 210, "cache_read_input_tokens": 5100, "cache_creation_input_tokens": 0}, "content": [{"type": "text", "text": "Refactoring complete."}]}

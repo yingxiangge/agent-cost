@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from agent_cost.compare import CompareResult
 from agent_cost.models import SessionStats
 
 
@@ -77,12 +78,59 @@ def format_analyze(stats: SessionStats, signals: dict) -> str:
 
 
 def format_stats_table(rows: list[SessionStats]) -> str:
-    header = f"{'AGENT':<8} {'TOTAL TOKENS':>14} {'CACHED %':>9} {'TOOL CALLS':>11} {'EST. USD':>10}  SESSION"
+    header = f"{'AGENT':<12} {'TOTAL TOKENS':>14} {'CACHED %':>9} {'TOOL CALLS':>11} {'EST. USD':>10}  SESSION"
     lines = [header, "-" * len(header)]
     for r in sorted(rows, key=lambda x: x.total_tokens, reverse=True):
         key = r.session_key[:48] if r.session_key else "?"
         lines.append(
-            f"{r.agent:<8} {_num(r.total_tokens):>14} {r.cache_hit_rate*100:>8.1f}% "
+            f"{r.agent:<12} {_num(r.total_tokens):>14} {r.cache_hit_rate*100:>8.1f}% "
             f"{r.tool_calls:>11} {r.estimated_cost_usd:>10.2f}  {key}"
         )
+    return "\n".join(lines)
+
+
+def format_compare(result: CompareResult, by_agent: bool = True) -> str:
+    lines = [
+        "Agent Comparison Report",
+        "═" * 78,
+    ]
+
+    # Agent Summary Table
+    header = f"{'AGENT':<14} {'SESSIONS':>8} {'TOTAL TOKENS':>14} {'CACHED %':>9} {'TOOLS':>7} {'EST. USD':>10} {'AVG $/SESS':>11}"
+    lines.append(header)
+    lines.append("-" * len(header))
+
+    for name, s in sorted(result.agent_summaries.items(), key=lambda x: x[1].total_tokens, reverse=True):
+        lines.append(
+            f"{name:<14} {s.session_count:>8} {_num(s.total_tokens):>14} {s.cache_hit_rate*100:>8.1f}% "
+            f"{s.tool_calls:>7} {s.estimated_cost_usd:>10.2f} {s.avg_cost_per_session:>11.2f}"
+        )
+
+    lines.append("-" * len(header))
+    lines.append(
+        f"{'TOTAL':<14} {result.total_sessions:>8} {_num(result.total_tokens):>14} "
+        f"{'':>9} {'':>7} {result.total_cost_usd:>10.2f}"
+    )
+    lines.append("")
+
+    # Detailed session breakdown if multiple sessions
+    if not by_agent or len(result.sessions) <= 10:
+        lines.append("Session Details:")
+        lines.append(f"{'AGENT':<12} {'MODEL':<20} {'TOTAL TOKENS':>12} {'CACHED %':>9} {'EST. USD':>9}  SESSION")
+        lines.append("-" * 78)
+        for r in sorted(result.sessions, key=lambda x: x.total_tokens, reverse=True):
+            m = r.model[:18] if r.model else "-"
+            key = r.session_key[:24] if r.session_key else "?"
+            lines.append(
+                f"{r.agent:<12} {m:<20} {_num(r.total_tokens):>12} {r.cache_hit_rate*100:>8.1f}% "
+                f"{r.estimated_cost_usd:>9.2f}  {key}"
+            )
+        lines.append("")
+
+    # Key Insights
+    if result.insights:
+        lines.append("Key Insights:")
+        for ins in result.insights:
+            lines.append(f"  • {ins}")
+
     return "\n".join(lines)

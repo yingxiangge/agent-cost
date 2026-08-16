@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `agent-cost compare` command for cross-agent and multi-session comparison,
+  outputting side-by-side token totals, cache efficiency rates, tool calls, and
+  estimated USD costs, plus structured `--json` output.
+- Claude Code parser (`src/agent_cost/parsers/claude.py`) supporting Anthropic API
+  prompt caching breakdown (`cache_read_input_tokens`, `cache_creation_input_tokens`)
+  and tool call tracking.
+- OpenCode parser (`src/agent_cost/parsers/opencode.py`) supporting step-by-step
+  turn usage, tool actions, and cached token tracking.
+- Automatic parser detection (`src/agent_cost/parsers/detect.py`) for directory
+  scanning and heterogeneous session loading.
+- Expanded model pricing table in `pricing.py` covering Claude 3.5/3.7 Sonnet,
+  Haiku, Opus, GPT-4o, o1, o3-mini, DeepSeek V3/R1, Qwen 2.5 Coder, and Gemini 1.5/2.0.
+- Unit and CLI smoke tests covering compare commands, Claude Code, and OpenCode parsers.
+
 ## [0.1.0] - 2026-08-13
 
 First public release.
