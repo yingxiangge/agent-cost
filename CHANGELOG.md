@@ -30,9 +30,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   corrected.
 
 ### Changed
+- Price table refreshed from Anthropic's official pricing page (2026-08-16):
+  added Fable 5, Opus 5/4.8/4.7/4.6/4.1, Sonnet 5, Sonnet 4.6, and Haiku 4.5.
+  Claude Code writes model ids like `claude-opus-5`, none of which the previous
+  table covered.
 - OpenCode support is documented as **experimental**: it parses a JSON export
   shape, not the SQLite session store current OpenCode actually writes.
 - Added `pricing.example.json` as a template for supplying your own rate cards.
+
+### Known approximations
+- `cache_write` is priced at the 5-minute rate (1.25x input). The usage payload
+  does not record which cache TTL was used, so sessions relying on the 1-hour
+  cache (2x input) are undercounted.
+- On a Claude Pro/Max subscription the dollar figures are shadow costs — what
+  the tokens would have cost on metered API billing — not an actual bill.
 
 ### Added
 - `agent-cost compare` command for cross-agent and multi-session comparison,

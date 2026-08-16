@@ -9,10 +9,31 @@ def test_estimate_cost_deepseek():
 
 def test_unknown_model_is_unpriced_not_guessed():
     """An unlisted model must report `unknown`, never another model's prices."""
-    for model in ("", "<synthetic>", "claude-opus-5", "some-local-llama", "gemini-2.5-pro"):
+    for model in ("", "<synthetic>", "some-local-llama", "gemini-2.5-pro", "mistral-large"):
         cost, status = estimate_cost(1000, 100, 0, 0, model)
         assert status == "unknown", model
         assert cost is None, model
+
+
+def test_current_anthropic_models_are_priced():
+    """Claude Code writes these model ids; none may fall through to `unknown`."""
+    expected = {
+        "claude-opus-5": (5.0, 25.0),
+        "claude-opus-4-8": (5.0, 25.0),
+        "claude-sonnet-5": (2.0, 10.0),
+        "claude-haiku-4-5": (1.0, 5.0),
+        "claude-fable-5": (10.0, 50.0),
+    }
+    for model, (inp, out) in expected.items():
+        table = resolve_pricing(model)
+        assert table is not None, model
+        assert (table["input"], table["output"]) == (inp, out), model
+
+
+def test_opus_4_1_is_not_swallowed_by_opus_4_5():
+    """Longest-prefix must not blur two families with very different prices."""
+    assert resolve_pricing("claude-opus-4-1")["input"] == 15.0
+    assert resolve_pricing("claude-opus-4-5")["input"] == 5.0
 
 
 def test_dated_model_resolves_to_its_family():

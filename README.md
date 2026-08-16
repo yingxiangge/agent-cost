@@ -120,17 +120,25 @@ executed or modified.
 
 ## Pricing
 
-Costs are estimated from a built-in price table covering Claude 3.5/3.7 Sonnet,
-Claude 4.5 Sonnet/Opus, Claude 3 Opus, Haiku, GPT-4o, GPT-5, o1, o3-mini,
-DeepSeek V3/R1, Qwen 2.5 Coder, and Gemini (see `pricing.py`).
+Costs are estimated from a built-in price table (see `pricing.py`) covering the
+Claude family (Fable 5, Opus 5/4.8/4.7/4.6/4.5/4.1, Sonnet 5/4.6/4.5, Haiku 4.5,
+plus the Claude 3.x generation), GPT-4o, GPT-5, o1, o3-mini, DeepSeek V3/R1,
+Qwen 2.5 Coder, and Gemini. Anthropic rates are from the
+[official pricing page](https://platform.claude.com/docs/en/about-claude/pricing)
+as of 2026-08-16.
 
 **A model that is not in the table is reported as `n/a`, never guessed.** It is
 excluded from every dollar total, and the report says how many sessions that
 covers. A wrong cost number is worse than no cost number, so there is no
 default rate card to fall back on.
 
-Newer models — including the Claude 5 family — are deliberately absent because
-this repo has no authoritative price for them. Supply your own:
+Two known approximations: `cache_write` uses the 5-minute rate (1.25x input),
+because the usage payload does not record which cache TTL was used — sessions
+on the 1-hour cache (2x input) are undercounted. And if you are on a Claude
+Pro/Max subscription rather than metered API billing, these dollar figures are
+*shadow costs* ("what these tokens would cost on the API"), not your bill.
+
+Supply your own rates to override any of this:
 
 ```bash
 agent-cost --pricing "$(cat my-pricing.json)" compare ~/.claude/projects/
