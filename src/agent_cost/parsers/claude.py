@@ -85,10 +85,16 @@ def _process_claude_event(event: dict, stats: SessionStats) -> None:
         cache_read = int(usage.get("cache_read_input_tokens") or usage.get("cache_read_tokens") or 0)
         cache_write = int(usage.get("cache_creation_input_tokens") or usage.get("cache_write_tokens") or 0)
 
-        stats.input_tokens += inp
-        stats.output_tokens += out
-        stats.cache_read_tokens += cache_read
-        stats.cache_write_tokens += cache_write
+        # `speed` and `inference_geo` decide which rate card this turn is billed
+        # on, and both can change between turns, so they are recorded per turn.
+        stats.add_usage(
+            inp,
+            out,
+            cache_read,
+            cache_write,
+            speed=str(usage.get("speed") or "standard"),
+            inference_geo=str(usage.get("inference_geo") or ""),
+        )
 
         stats.turns += 1
         prompt_tokens_this_turn = inp + cache_read + cache_write

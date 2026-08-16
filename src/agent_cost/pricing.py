@@ -61,6 +61,20 @@ PRICING: dict[str, dict[str, float]] = {
 }
 
 
+# Fast mode (research preview) trades price for latency and is billed at its own
+# rates across the full context window. Only these models support it; on every
+# other model `speed: "fast"` is either rejected or billed at standard rates.
+# Cache multipliers still apply on top (5m write 1.25x, read 0.1x of fast input).
+FAST_PRICING: dict[str, dict[str, float]] = {
+    "claude-opus-5": {"input": 10.0, "output": 50.0, "cache_read": 1.0, "cache_write": 12.50},
+    "claude-opus-4-8": {"input": 10.0, "output": 50.0, "cache_read": 1.0, "cache_write": 12.50},
+}
+
+# Pinning inference to a single geography costs a premium on every token
+# category. `global` (the default) and `not_available` are standard priced.
+GEO_MULTIPLIER: dict[str, float] = {"us": 1.1}
+
+
 def resolve_pricing(model: str, custom_pricing: dict | None = None) -> Optional[dict[str, float]]:
     """Look up the rate card for `model`, or None when it is not known.
 
@@ -98,20 +112,80 @@ def estimate_cost(
     cache_write_tokens: int,
     model: str = "",
     custom_pricing: dict | None = None,
+    speed: str = "standard",
+    inference_geo: str = "",
 ) -> tuple[Optional[float], str]:
-    """Estimate session cost in USD. Returns (cost, status).
+    """Estimate cost in USD for one billing mode. Returns (cost, status).
 
     Returns (None, "unknown") when the model has no rate card, rather than
     falling back to an unrelated model's prices.
+
+    `speed="fast"` switches to the fast-mode rate card where the model has one;
+    a model without fast rates falls back to its standard card, matching the API
+    (Opus 4.6 runs fast requests at standard speed and standard rates).
+    `inference_geo="us"` applies the 1.1x data-residency premium on every
+    category. Both multipliers stack, exactly as the pricing docs describe.
     """
-    table = resolve_pricing(model, custom_pricing)
+    table = None
+    if speed == "fast":
+        table = FAST_PRICING.get((model or "").lower().split("/")[-1].strip())
+        if custom_pricing:
+            # A caller-supplied card always wins, including over fast rates.
+            table = resolve_pricing(model, custom_pricing) or table
+    if not table:
+        table = resolve_pricing(model, custom_pricing)
     if not table:
         return None, "unknown"
 
+    geo = GEO_MULTIPLIER.get((inference_geo or "").lower(), 1.0)
     cost = (
         input_tokens * table.get("input", 0.0)
         + cache_read_tokens * table.get("cache_read", 0.0)
         + cache_write_tokens * table.get("cache_write", 0.0)
         + output_tokens * table.get("output", 0.0)
-    ) / 1_000_000.0
+    ) * geo / 1_000_000.0
     return cost, "estimated"
+
+
+def estimate_session_cost(
+    stats,
+    custom_pricing: dict | None = None,
+) -> tuple[Optional[float], str]:
+    """Price a whole session, respecting per-turn billing modes.
+
+    Fast mode can be toggled mid-session, and each mode is billed differently,
+    so a session is priced per (speed, inference_geo) bucket and summed rather
+    than by applying one rate card to the session totals. Sessions whose parser
+    records no buckets (Codex, Hermes, OpenCode) fall back to the flat totals.
+
+    Returns (None, "unknown") if ANY bucket lacks a rate card -- a partially
+    priced session would understate silently.
+    """
+    buckets = getattr(stats, "billing_buckets", None)
+    if not buckets:
+        return estimate_cost(
+            stats.input_tokens,
+            stats.output_tokens,
+            stats.cache_read_tokens,
+            stats.cache_write_tokens,
+            stats.model,
+            custom_pricing,
+        )
+
+    total = 0.0
+    for key, tokens in buckets.items():
+        speed, _, geo = key.partition("|")
+        cost, status = estimate_cost(
+            tokens.get("input", 0),
+            tokens.get("output", 0),
+            tokens.get("cache_read", 0),
+            tokens.get("cache_write", 0),
+            stats.model,
+            custom_pricing,
+            speed=speed,
+            inference_geo=geo,
+        )
+        if cost is None:
+            return None, status
+        total += cost
+    return total, "estimated"

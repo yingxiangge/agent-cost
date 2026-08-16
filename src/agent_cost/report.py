@@ -56,8 +56,14 @@ def format_inspect(stats: SessionStats, cost_override: float | None = None) -> s
     if stats.cost_status == "unknown":
         hint = f"no rate card for model '{stats.model}'" if stats.model else "model not recorded in session"
         lines.append(f"Estimated Cost    n/a  ({hint}; set one with --pricing)")
+    elif stats.cost_status == "included":
+        lines.append(f"API-equiv. Value  ${cost:.2f}  (included in subscription, not billed)")
     else:
         lines.append(f"Estimated Cost    ${cost:.2f}  ({stats.cost_status})")
+
+    modes = [m for m in stats.billing_buckets if not m.startswith("standard|")]
+    if modes and len(stats.billing_buckets) > 1:
+        lines.append(f"Billing modes     {', '.join(sorted(stats.billing_buckets))}")
     return "\n".join(lines)
 
 
@@ -162,6 +168,13 @@ def format_compare(result: CompareResult, by_agent: bool = True) -> str:
         lines.append(
             f"n/a / * = model has no rate card, excluded from dollar totals "
             f"({result.unpriced_sessions} of {result.total_sessions} sessions)."
+        )
+        lines.append("")
+
+    if any(s.cost_status == "included" for s in result.sessions):
+        lines.append(
+            "Dollar figures are API-equivalent value, not money spent: these sessions "
+            "run on a subscription."
         )
         lines.append("")
 

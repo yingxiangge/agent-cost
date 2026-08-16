@@ -51,6 +51,9 @@ agent-cost analyze ~/.codex/sessions/2026/08/11/
 
 # Aggregate totals across sessions
 agent-cost stats ~/.codex/sessions/2026/08/
+
+# On a Claude Pro/Max subscription: report API-equivalent value, not spend
+agent-cost --subscription compare ~/.claude/projects/
 ```
 
 ### Real example (`agent-cost compare`)
@@ -132,11 +135,28 @@ excluded from every dollar total, and the report says how many sessions that
 covers. A wrong cost number is worse than no cost number, so there is no
 default rate card to fall back on.
 
-Two known approximations: `cache_write` uses the 5-minute rate (1.25x input),
+**Billing modes are priced per turn, not per session.** Fast mode and US-pinned
+inference cost more and can be toggled mid-session, so usage is split into
+`(speed, inference_geo)` buckets and each bucket is priced on its own card:
+
+| Mode | Effect | Source |
+|:---|:---|:---|
+| `speed: "fast"` | Opus 5 / Opus 4.8 billed at **$10 / $50** instead of $5 / $25. Other models fall back to standard rates, matching the API. | `usage.speed` |
+| `inference_geo: "us"` | **1.1x** on every token category. `global` / `not_available` are standard priced. | `usage.inference_geo` |
+
+The two stack. `agent-cost inspect` lists the modes when a session used more
+than one.
+
+**On a subscription, pass `--subscription`.** Claude Pro/Max sessions do not
+generate per-token charges, so the transcript's dollar value is what those
+tokens *would* have cost on metered API billing — useful for comparing agents
+and deciding when to restart a session, useless as a bill. The flag relabels
+every figure as API-equivalent value. It has to be explicit: the transcript
+carries no field distinguishing subscription from API usage.
+
+One remaining approximation: `cache_write` uses the 5-minute rate (1.25x input),
 because the usage payload does not record which cache TTL was used — sessions
-on the 1-hour cache (2x input) are undercounted. And if you are on a Claude
-Pro/Max subscription rather than metered API billing, these dollar figures are
-*shadow costs* ("what these tokens would cost on the API"), not your bill.
+on the 1-hour cache (2x input) are undercounted.
 
 Supply your own rates to override any of this:
 
@@ -159,7 +179,6 @@ is never priced as `gpt-5`.
 - [x] `agent-cost compare`: side-by-side agent comparison with `--by-agent` and `--json`
 - [x] OpenCode / Claude Code session parsing
 - [ ] OpenCode: read the real SQLite session store instead of the JSON export shape
-- [ ] Warn on files that parse to zero tokens instead of silently counting them as empty
 - [ ] `agent-cost watch`: budget thresholds with warnings before a session blows up
 - [ ] Tool-call-level cost attribution when providers expose per-request usage
 

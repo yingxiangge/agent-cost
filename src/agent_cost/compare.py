@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from agent_cost.models import SessionStats
-from agent_cost.pricing import estimate_cost
+from agent_cost.pricing import estimate_cost, estimate_session_cost
 
 
 @dataclass
@@ -51,7 +51,34 @@ class CompareResult:
     insights: list[str] = field(default_factory=list)
 
 
-def compare_sessions(sessions: list[SessionStats], custom_pricing: dict | None = None) -> CompareResult:
+def _dominant_mode(stats: SessionStats) -> tuple[str, str]:
+    """The billing mode most of this session's prompt tokens were billed on.
+
+    Used only for the cache-savings counterfactual, which is a single
+    "what if nothing had been cached" figure and so needs one mode, not a
+    per-bucket split.
+    """
+    buckets = getattr(stats, "billing_buckets", None)
+    if not buckets:
+        return "standard", ""
+    key = max(buckets, key=lambda k: buckets[k].get("cache_read", 0) + buckets[k].get("input", 0))
+    speed, _, geo = key.partition("|")
+    return speed, geo
+
+
+def _dominant_speed(stats: SessionStats) -> str:
+    return _dominant_mode(stats)[0]
+
+
+def _dominant_geo(stats: SessionStats) -> str:
+    return _dominant_mode(stats)[1]
+
+
+def compare_sessions(
+    sessions: list[SessionStats],
+    custom_pricing: dict | None = None,
+    subscription: bool = False,
+) -> CompareResult:
     """Perform side-by-side comparative analysis of multiple agent sessions."""
     summaries: dict[str, AgentSummary] = {}
     total_tokens = 0
@@ -61,12 +88,12 @@ def compare_sessions(sessions: list[SessionStats], custom_pricing: dict | None =
     for s in sessions:
         # Ensure cost is filled
         if s.cost_status == "unknown" or s.estimated_cost_usd == 0.0:
-            c, st = estimate_cost(
-                s.input_tokens, s.output_tokens, s.cache_read_tokens, s.cache_write_tokens, s.model, custom_pricing
-            )
+            c, st = estimate_session_cost(s, custom_pricing)
             if c is not None:
                 s.estimated_cost_usd = c
                 s.cost_status = st
+        if subscription and s.cost_status == "estimated":
+            s.cost_status = "included"
 
         agent = s.agent or "unknown"
         if agent not in summaries:
@@ -101,6 +128,8 @@ def compare_sessions(sessions: list[SessionStats], custom_pricing: dict | None =
                 s.cache_write_tokens,
                 s.model,
                 custom_pricing,
+                speed=_dominant_speed(s),
+                inference_geo=_dominant_geo(s),
             )
             if full_cost is not None and full_cost > s.estimated_cost_usd:
                 total_savings += (full_cost - s.estimated_cost_usd)

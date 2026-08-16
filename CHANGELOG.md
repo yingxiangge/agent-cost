@@ -7,7 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Per-turn billing modes.** `usage.speed` and `usage.inference_geo` decide
+  which rate card a turn is billed on and can change mid-session, so usage is
+  now split into `(speed, inference_geo)` buckets and each is priced separately.
+  Fast mode bills Opus 5 / Opus 4.8 at $10/$50 instead of $5/$25; US-pinned
+  inference adds 1.1x on every category; the two stack. Parsers that cannot
+  observe these modes (Codex, Hermes, OpenCode) record no buckets and are
+  priced off the flat totals exactly as before.
+- **`--subscription`** reports costs as API-equivalent value rather than money
+  spent, for Claude Pro/Max sessions that generate no per-token charges. The
+  flag is explicit because transcripts carry no field distinguishing
+  subscription from metered API usage (`service_tier` is `standard` for both).
+
 ### Fixed
+- **Format detection no longer stops after 15 lines.** It streams the file until
+  a signature appears, so a transcript whose opening lines are metadata and user
+  text is no longer misclassified. Five of 72 real Claude Code transcripts were
+  being reported as OpenCode sessions.
+- **Files that parse to zero usage are reported on stderr** instead of quietly
+  joining the totals as zeros — the signature of a misdetected format is
+  indistinguishable from a genuinely empty session otherwise.
+
 - **Unknown models are no longer priced as DeepSeek.** `estimate_cost` fell back
   to the DeepSeek rate card for any model missing from the table and still
   reported the result as `estimated`, so sessions on unlisted models — including

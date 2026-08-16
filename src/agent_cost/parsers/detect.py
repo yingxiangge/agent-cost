@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 from agent_cost.models import SessionStats
@@ -10,23 +11,47 @@ from agent_cost.parsers.hermes import parse_hermes_sessions
 from agent_cost.parsers.opencode import parse_opencode_session
 
 
-def load_path(path: str | Path) -> list[SessionStats]:
-    """Auto-detect parser and load session stats from a file or directory."""
+def load_path(path: str | Path, warn: bool = True) -> list[SessionStats]:
+    """Auto-detect parser and load session stats from a file or directory.
+
+    Files that yield no usage at all are reported on stderr instead of quietly
+    joining the totals as zeros: that is the signature of a misdetected format,
+    and a silent zero is indistinguishable from a genuinely empty session.
+    """
     p = Path(path)
     if not p.exists():
         return []
 
+    results: list[SessionStats] = []
+    empty: list[str] = []
+
     if p.is_dir():
-        results: list[SessionStats] = []
         for file in sorted(p.rglob("*")):
             if file.is_file() and file.suffix in (".json", ".jsonl"):
                 try:
-                    results.extend(parse_file(file))
-                except Exception:
+                    loaded = parse_file(file)
+                except Exception as exc:  # noqa: BLE001 - one bad file must not abort a scan
+                    if warn:
+                        print(f"agent-cost: skipped {file.name}: {exc}", file=sys.stderr)
                     continue
-        return results
+                results.extend(loaded)
+                empty.extend(file.name for s in loaded if _is_empty(s))
+    else:
+        results = parse_file(p)
+        empty = [p.name for s in results if _is_empty(s)]
 
-    return parse_file(p)
+    if warn and empty:
+        shown = ", ".join(empty[:3]) + (f" (+{len(empty) - 3} more)" if len(empty) > 3 else "")
+        print(
+            f"agent-cost: {len(empty)} file(s) parsed to zero usage and contribute "
+            f"nothing to the totals: {shown}",
+            file=sys.stderr,
+        )
+    return results
+
+
+def _is_empty(stats: SessionStats) -> bool:
+    return stats.total_tokens == 0 and stats.turns == 0 and stats.tool_calls == 0
 
 
 def parse_file(path: str | Path) -> list[SessionStats]:
@@ -102,29 +127,39 @@ def _parse_json_file(p: Path) -> list[SessionStats]:
         return [parse_opencode_session(p)]
 
 
+_CODEX_SIGNATURES = ("session_meta", "turn_context", "response_item")
+_CLAUDE_SIGNATURES = ("cache_read_input_tokens", "tool_use", "sessionid", "claude")
+_OPENCODE_SIGNATURES = ("opencode",)
+
+
+def _sniff_jsonl(p: Path) -> str | None:
+    """Stream the file looking for a format signature; stop at the first hit.
+
+    Scanning only the head is what misclassifies sessions: a transcript whose
+    opening lines are metadata and user text carries no signature until the
+    first assistant reply, which can be well past any fixed cutoff. Streaming
+    costs nothing on normal files (the signature usually appears within a few
+    lines) and is bounded by the file itself.
+    """
+    with p.open(encoding="utf-8", errors="ignore") as fh:
+        for line in fh:
+            low = line.lower()
+            if any(sig in low for sig in _CODEX_SIGNATURES):
+                return "codex"
+            if any(sig in low for sig in _CLAUDE_SIGNATURES):
+                return "claude"
+            if any(sig in low for sig in _OPENCODE_SIGNATURES):
+                return "opencode"
+    return None
+
+
 def _parse_jsonl_file(p: Path) -> list[SessionStats]:
-    with p.open(encoding="utf-8") as fh:
-        first_lines = []
-        for _ in range(15):
-            line = fh.readline()
-            if not line:
-                break
-            line = line.strip()
-            if line:
-                first_lines.append(line)
-
-    combined = "\n".join(first_lines)
-
-    # Codex signatures
-    if "session_meta" in combined or "turn_context" in combined or "response_item" in combined:
+    kind = _sniff_jsonl(p)
+    if kind == "codex":
         return [parse_codex_rollout(p)]
-
-    # Claude signatures
-    if "cache_read_input_tokens" in combined or "tool_use" in combined or "claude" in combined.lower():
+    if kind == "claude":
         return [parse_claude_session(p)]
-
-    # OpenCode signatures
-    if "opencode" in combined.lower() or "action" in combined:
+    if kind == "opencode":
         return [parse_opencode_session(p)]
 
     # Default: try codex -> claude -> opencode

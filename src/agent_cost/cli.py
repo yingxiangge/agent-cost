@@ -10,7 +10,7 @@ from agent_cost.analyze import analyze
 from agent_cost.compare import compare_sessions
 from agent_cost.models import SessionStats
 from agent_cost.parsers.detect import load_path
-from agent_cost.pricing import estimate_cost
+from agent_cost.pricing import estimate_session_cost
 from agent_cost.report import format_analyze, format_compare, format_inspect, format_stats_table
 
 
@@ -27,20 +27,24 @@ def _load_all(paths: list[str]) -> list[SessionStats]:
     return stats
 
 
-def _fill_cost(stats: SessionStats, custom_pricing: dict | None = None) -> float | None:
+def _fill_cost(
+    stats: SessionStats,
+    custom_pricing: dict | None = None,
+    subscription: bool = False,
+) -> float | None:
     if stats.cost_status in ("actual", "estimated", "included") and stats.estimated_cost_usd > 0:
-        return stats.estimated_cost_usd
-    cost, status = estimate_cost(
-        stats.input_tokens,
-        stats.output_tokens,
-        stats.cache_read_tokens,
-        stats.cache_write_tokens,
-        stats.model,
-        custom_pricing,
-    )
-    if cost is not None:
+        cost = stats.estimated_cost_usd
+    else:
+        cost, status = estimate_session_cost(stats, custom_pricing)
+        if cost is None:
+            return None
         stats.estimated_cost_usd = cost
         stats.cost_status = status
+
+    if subscription and stats.cost_status == "estimated":
+        # The tokens were real, the dollars were not spent: a subscription
+        # already covers them. Keep the figure, change what it claims to be.
+        stats.cost_status = "included"
     return cost
 
 
@@ -53,6 +57,13 @@ def main(argv: list[str] | None = None) -> int:
         "--pricing",
         help="JSON string with custom pricing override.",
         default=None,
+    )
+    parser.add_argument(
+        "--subscription",
+        action="store_true",
+        default=False,
+        help="Bill through a Claude Pro/Max (or similar) subscription: report costs "
+             "as API-equivalent value rather than money spent.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -87,21 +98,21 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "inspect":
         for s in stats:
-            _fill_cost(s, custom_pricing)
+            _fill_cost(s, custom_pricing, args.subscription)
             print(format_inspect(s))
             print()
     elif args.command == "analyze":
         for s in stats:
-            _fill_cost(s, custom_pricing)
+            _fill_cost(s, custom_pricing, args.subscription)
             signals = analyze(s)
             print(format_analyze(s, signals))
             print()
     elif args.command == "stats":
         for s in stats:
-            _fill_cost(s, custom_pricing)
+            _fill_cost(s, custom_pricing, args.subscription)
         print(format_stats_table(stats))
     elif args.command == "compare":
-        result = compare_sessions(stats, custom_pricing)
+        result = compare_sessions(stats, custom_pricing, args.subscription)
         if args.json:
             out = {
                 "total_sessions": result.total_sessions,
