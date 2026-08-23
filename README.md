@@ -29,6 +29,15 @@ changes the unit price.
 ## Install
 
 ```bash
+# Install via pip
+pip install agent-cost
+
+# Or run directly via pipx without installing
+pipx run agent-cost compare ~/.claude/projects/
+
+# Development install from source
+git clone https://github.com/yingxiangge/agent-cost.git
+cd agent-cost
 pip install -e .
 ```
 
@@ -107,19 +116,16 @@ Recommendations:
   `cache_creation_input_tokens` breakdown, plus tool calls.
 - **Hermes** (`sessions.json`): real `input/output/cache_read/cache_write`
   totals plus estimated cost when the agent has finalized them.
-- **OpenCode** (`.json` or `.jsonl`) — **experimental**: parses a JSON export
-  shape with step-level `usage` objects. Current OpenCode keeps sessions in
-  SQLite (`~/.local/share/opencode/opencode.db`, with a
-  `{tokens: {input, output, cache: {read, write}}, cost}` schema), which this
-  parser does not read yet. Point it at that database and you will get empty
-  sessions, not results.
+- **OpenCode** (`~/.local/share/opencode/opencode.db` SQLite database, or `.json` / `.jsonl` exports):
+  real turn-by-turn token usage, tool calls, and cache stats (`input`, `output`,
+  `cache.read`, `cache.write`).
 - **Codex rollouts** (`~/.codex/sessions/**/*.jsonl`): turns, tool calls,
   compaction events, prompt-size curve and context-source attribution.
   Rollouts usually have no token counters, so prompt sizes are estimated from
   content length (approx. 4 chars/token) and reported as estimates.
 
 Parsing is intentionally read-only: files are only opened and counted, never
-executed or modified.
+executed or modified. Database connections use read-only SQLite URIs.
 
 ## Pricing
 
@@ -177,8 +183,10 @@ is never priced as `gpt-5`.
 ## Roadmap
 
 - [x] `agent-cost compare`: side-by-side agent comparison with `--by-agent` and `--json`
-- [x] OpenCode / Claude Code session parsing
-- [ ] OpenCode: read the real SQLite session store instead of the JSON export shape
+- [x] Claude Code / Codex / Hermes session parsing
+- [x] OpenCode: SQLite database (`opencode.db`) and JSON export parsing
+- [ ] Support Cursor (`composer.json` / workspace state) log formats
+- [ ] Support Cline / Roo Code conversation history formats
 - [ ] `agent-cost watch`: budget thresholds with warnings before a session blows up
 - [ ] Tool-call-level cost attribution when providers expose per-request usage
 

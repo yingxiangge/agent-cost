@@ -8,14 +8,24 @@ version = "0.1.0"
 description = "Token, cache and context observability for AI coding agents."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
 authors = [{ name = "yingxiangge" }]
-keywords = ["llm", "tokens", "cost", "observability", "codex", "hermes", "agent"]
+keywords = ["llm", "tokens", "cost", "observability", "codex", "hermes", "agent", "claude-code", "opencode"]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
     "Topic :: Software Development :: Quality Assurance",
+    "Topic :: System :: Monitoring",
 ]
+
+[project.urls]
+Homepage = "https://github.com/yingxiangge/agent-cost"
+Repository = "https://github.com/yingxiangge/agent-cost"
+Issues = "https://github.com/yingxiangge/agent-cost/issues"
+Changelog = "https://github.com/yingxiangge/agent-cost/blob/main/CHANGELOG.md"
 
 [project.scripts]
 agent-cost = "agent_cost.cli:main"

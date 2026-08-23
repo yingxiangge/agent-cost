@@ -8,7 +8,7 @@ from agent_cost.models import SessionStats
 from agent_cost.parsers.claude import parse_claude_session
 from agent_cost.parsers.codex import parse_codex_rollout
 from agent_cost.parsers.hermes import parse_hermes_sessions
-from agent_cost.parsers.opencode import parse_opencode_session
+from agent_cost.parsers.opencode import parse_opencode_session, parse_opencode_sqlite
 
 
 def load_path(path: str | Path, warn: bool = True) -> list[SessionStats]:
@@ -27,7 +27,7 @@ def load_path(path: str | Path, warn: bool = True) -> list[SessionStats]:
 
     if p.is_dir():
         for file in sorted(p.rglob("*")):
-            if file.is_file() and file.suffix in (".json", ".jsonl"):
+            if file.is_file() and (file.suffix in (".json", ".jsonl", ".db", ".sqlite", ".sqlite3") or file.name == "opencode.db"):
                 try:
                     loaded = parse_file(file)
                 except Exception as exc:  # noqa: BLE001 - one bad file must not abort a scan
@@ -63,12 +63,22 @@ def parse_file(path: str | Path) -> list[SessionStats]:
     if p.name == "sessions.json":
         return parse_hermes_sessions(p)
 
+    if p.suffix in (".db", ".sqlite", ".sqlite3") or p.name == "opencode.db":
+        return parse_opencode_sqlite(p)
+
     if p.suffix == ".json":
         return _parse_json_file(p)
     elif p.suffix == ".jsonl":
         return _parse_jsonl_file(p)
 
-    # Unknown extension, try both
+    # Unknown extension, try SQLite first if it's a binary DB, else json/jsonl
+    try:
+        res = parse_opencode_sqlite(p)
+        if res:
+            return res
+    except Exception:
+        pass
+
     try:
         return _parse_json_file(p)
     except Exception:
