@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sqlite3
+import sys
+from pathlib import Path
 
 from agent_cost.models import SessionStats
 
@@ -69,82 +70,116 @@ def parse_opencode_session(path: str | Path) -> SessionStats:
     return stats
 
 
-def parse_opencode_sqlite(path: str | Path) -> list[SessionStats]:
-    """Parse an OpenCode SQLite database (~/.local/share/opencode/opencode.db) into SessionStats."""
+def parse_opencode_sqlite(path: str | Path, warn: bool = True) -> list[SessionStats]:
+    """Parse an OpenCode SQLite database (``~/.local/share/opencode/opencode.db``).
+
+    The database belongs to a possibly running agent, so it is opened through a
+    read-only URI: this tool must never write to it, nor trigger WAL recovery.
+    There is deliberately no read-write fallback -- failing to read is a result
+    we can report, corrupting someone's session store is not.
+
+    A row we cannot decode is counted and reported on stderr, never swallowed:
+    a partially parsed database looks exactly like a cheap session, and an
+    under-reported cost is worse than a loud failure.
+    """
     p = Path(path)
     if not p.is_file():
         return []
 
-    sessions: dict[str, SessionStats] = {}
-
     try:
         conn = sqlite3.connect(f"file:{p.resolve()}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
-    except Exception:
-        try:
-            conn = sqlite3.connect(str(p))
-            conn.row_factory = sqlite3.Row
-        except Exception:
-            return []
+    except sqlite3.Error:
+        return []
+    conn.row_factory = sqlite3.Row
+
+    sessions: dict[str, SessionStats] = {}
+    skipped = 0
 
     try:
         cur = conn.cursor()
-        tables = {row[0] for row in cur.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        try:
+            tables = {row[0] for row in cur.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        except sqlite3.DatabaseError:
+            # Not a SQLite database at all: a negative format probe, not an error.
+            return []
 
-        # 1. Fetch metadata from session table if available
+        # 1. Session metadata, when the schema exposes it.
         if "session" in tables or "sessions" in tables:
             tbl = "session" if "session" in tables else "sessions"
-            cols = {col[1] for col in cur.execute(f"PRAGMA table_info({tbl})").fetchall()}
+            cols = {col[1] for col in cur.execute(f"PRAGMA table_info({tbl})")}
             id_col = "id" if "id" in cols else "session_id" if "session_id" in cols else None
             if id_col:
-                for row in cur.execute(f"SELECT * FROM {tbl}").fetchall():
+                for row in cur.execute(f"SELECT * FROM {tbl}"):
                     s_id = str(row[id_col])
                     st = SessionStats(agent="opencode", session_key=s_id)
                     if "created_at" in cols and row["created_at"]:
                         st.created_at = str(row["created_at"])
                     if "updated_at" in cols and row["updated_at"]:
                         st.updated_at = str(row["updated_at"])
-                    if "modelID" in cols and row["modelID"]:
-                        st.model = str(row["modelID"])
-                    elif "model_id" in cols and row["model_id"]:
-                        st.model = str(row["model_id"])
-                    elif "model" in cols and row["model"]:
-                        st.model = str(row["model"])
+                    for model_col in ("modelID", "model_id", "model"):
+                        if model_col in cols and row[model_col]:
+                            st.model = str(row[model_col])
+                            break
                     sessions[s_id] = st
 
-        # 2. Fetch messages / events
+        # 2. Per-message usage.
         if "message" in tables or "messages" in tables:
             msg_tbl = "message" if "message" in tables else "messages"
-            msg_cols = {col[1] for col in cur.execute(f"PRAGMA table_info({msg_tbl})").fetchall()}
+            msg_cols = {col[1] for col in cur.execute(f"PRAGMA table_info({msg_tbl})")}
             s_fk = "session_id" if "session_id" in msg_cols else "sessionId" if "sessionId" in msg_cols else None
-            data_col = "data" if "data" in msg_cols else "payload" if "payload" in msg_cols else "message" if "message" in msg_cols else None
+            data_col = next((c for c in ("data", "payload", "message") if c in msg_cols), None)
 
             if s_fk and data_col:
-                for row in cur.execute(f"SELECT {s_fk}, {data_col} FROM {msg_tbl} ORDER BY rowid ASC").fetchall():
-                    s_id = str(row[s_fk] or "default")
-                    if s_id not in sessions:
-                        sessions[s_id] = SessionStats(agent="opencode", session_key=s_id)
-                    st = sessions[s_id]
+                for row in cur.execute(f"SELECT {s_fk}, {data_col} FROM {msg_tbl} ORDER BY rowid ASC"):
                     raw_data = row[data_col]
                     if not raw_data:
                         continue
-                    if isinstance(raw_data, str):
-                        try:
-                            msg_obj = json.loads(raw_data)
-                        except json.JSONDecodeError:
-                            continue
-                    elif isinstance(raw_data, dict):
-                        msg_obj = raw_data
-                    else:
+                    try:
+                        msg_obj = _decode_message(raw_data)
+                    except (ValueError, TypeError, UnicodeDecodeError):
+                        skipped += 1
+                        continue
+                    if msg_obj is None:
                         continue
 
-                    _process_opencode_event(msg_obj, st)
-    except Exception:
-        pass
+                    s_id = str(row[s_fk] or "default")
+                    st = sessions.get(s_id)
+                    if st is None:
+                        st = SessionStats(agent="opencode", session_key=s_id)
+                        sessions[s_id] = st
+                    try:
+                        _process_opencode_event(msg_obj, st)
+                    except (ValueError, TypeError, AttributeError):
+                        # One malformed counter must not truncate the scan: the
+                        # rows after it carry usage we would otherwise lose.
+                        skipped += 1
     finally:
         conn.close()
 
+    if warn and skipped:
+        print(
+            f"agent-cost: {p.name}: {skipped} message row(s) could not be read; "
+            f"the totals below are incomplete",
+            file=sys.stderr,
+        )
+
     return [s for s in sessions.values() if not (s.total_tokens == 0 and s.turns == 0 and s.tool_calls == 0)]
+
+
+def _decode_message(raw: object) -> dict | None:
+    """Return the message payload as a dict, or None when it is not one.
+
+    SQLite hands back TEXT as ``str`` and BLOB as ``bytes``; OpenCode writes
+    JSON either way, so a bytes column must be decoded rather than dropped.
+    """
+    if isinstance(raw, (bytes, bytearray)):
+        raw = bytes(raw).decode("utf-8")
+    if isinstance(raw, str):
+        obj = json.loads(raw)
+        return obj if isinstance(obj, dict) else None
+    if isinstance(raw, dict):
+        return raw
+    return None
 
 
 def _process_opencode_event(event: dict, stats: SessionStats) -> None:
@@ -182,7 +217,24 @@ def _process_opencode_event(event: dict, stats: SessionStats) -> None:
         })
         return
 
-    # Format 2: OpenCode native tokens dict
+    # Format 2: OpenCode's native `tokens` dict, as written by the AI SDK.
+    #
+    # ASSUMED SEMANTICS: `input` EXCLUDES `cache.read`, so the two are summed
+    # rather than netted -- the Anthropic convention that `_read_usage` applies
+    # to `input_tokens`.
+    #
+    # This one cannot be decided from the field names the way `_read_usage`
+    # does: the AI SDK normalises every provider onto the same `input` key,
+    # while the meaning still follows the provider underneath (OpenAI's
+    # `prompt_tokens` includes the cached prefix, Anthropic's `input_tokens`
+    # does not). On an OpenAI-backed OpenCode session this therefore
+    # double-counts the cached prefix. Documented as a known limitation until
+    # it can be checked against a real OpenAI-backed `opencode.db`; do not
+    # "fix" it by guessing the provider from the model id.
+    #
+    # `tokens.reasoning` is deliberately NOT added: reasoning tokens are a
+    # subset of `output` (OpenAI bills them inside `completion_tokens`,
+    # Anthropic inside `output_tokens`), so adding them would double-count.
     tokens = event.get("tokens")
     if isinstance(tokens, dict):
         inp = int(tokens.get("input") or 0)
