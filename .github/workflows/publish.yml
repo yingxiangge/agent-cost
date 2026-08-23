@@ -9,6 +9,7 @@ jobs:
   pypi-publish:
     name: Build and publish to PyPI
     runs-on: ubuntu-latest
+    environment: pypi # Gate manual dispatches behind an approval rule
     permissions:
       id-token: write # Required for trusted publishing
 

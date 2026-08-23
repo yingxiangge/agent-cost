@@ -5,7 +5,7 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-08-23
 
 ### Added
 - **Per-turn billing modes.** `usage.speed` and `usage.inference_geo` decide
@@ -26,6 +26,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   flag is explicit because transcripts carry no field distinguishing
   subscription from metered API usage (`service_tier` is `standard` for both).
 
+- `agent-cost compare` command for cross-agent and multi-session comparison,
+  outputting side-by-side token totals, cache efficiency rates, tool calls, and
+  estimated USD costs, plus structured `--json` output.
+- Claude Code parser (`src/agent_cost/parsers/claude.py`) supporting Anthropic API
+  prompt caching breakdown (`cache_read_input_tokens`, `cache_creation_input_tokens`)
+  and tool call tracking.
+- OpenCode parser (`src/agent_cost/parsers/opencode.py`) supporting step-by-step
+  turn usage, tool actions, and cached token tracking.
+- Automatic parser detection (`src/agent_cost/parsers/detect.py`) for directory
+  scanning and heterogeneous session loading.
+- Expanded model pricing table in `pricing.py` covering Claude 3.5/3.7 Sonnet,
+  Haiku, Opus, GPT-4o, o1, o3-mini, DeepSeek V3/R1, Qwen 2.5 Coder, and Gemini 1.5/2.0.
+- Unit and CLI smoke tests covering compare commands, Claude Code, and OpenCode parsers.
+
 ### Fixed
 - **The build no longer fails on modern setuptools.** `license = "MIT"` is a
   PEP 639 expression, and setuptools >= 77 rejects a project that also carries
@@ -40,6 +54,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `data` columns are decoded rather than dropped, and the unreachable
   read-write connection fallback — which contradicted the read-only guarantee
   — is gone.
+- **An unrelated SQLite database is no longer reported as OpenCode sessions.**
+  `session` and `message` are generic table names; a database matching that
+  shape with no usage payload at all is now ignored with a note on stderr,
+  instead of contributing rows counted from whatever `tool` keys it happened
+  to contain.
 - **Tool calls in a `toolCalls` list are counted individually.** A single
   assistant message carrying three tool invocations was counted as one call,
   under-reporting every multi-tool turn, and `str()` on the list billed its
@@ -91,21 +110,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   checking against a real OpenAI-backed `opencode.db`.
 - On a Claude Pro/Max subscription the dollar figures are shadow costs — what
   the tokens would have cost on metered API billing — not an actual bill.
-
-### Added
-- `agent-cost compare` command for cross-agent and multi-session comparison,
-  outputting side-by-side token totals, cache efficiency rates, tool calls, and
-  estimated USD costs, plus structured `--json` output.
-- Claude Code parser (`src/agent_cost/parsers/claude.py`) supporting Anthropic API
-  prompt caching breakdown (`cache_read_input_tokens`, `cache_creation_input_tokens`)
-  and tool call tracking.
-- OpenCode parser (`src/agent_cost/parsers/opencode.py`) supporting step-by-step
-  turn usage, tool actions, and cached token tracking.
-- Automatic parser detection (`src/agent_cost/parsers/detect.py`) for directory
-  scanning and heterogeneous session loading.
-- Expanded model pricing table in `pricing.py` covering Claude 3.5/3.7 Sonnet,
-  Haiku, Opus, GPT-4o, o1, o3-mini, DeepSeek V3/R1, Qwen 2.5 Coder, and Gemini 1.5/2.0.
-- Unit and CLI smoke tests covering compare commands, Claude Code, and OpenCode parsers.
 
 ## [0.1.0] - 2026-08-13
 

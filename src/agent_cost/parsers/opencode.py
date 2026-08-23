@@ -94,6 +94,7 @@ def parse_opencode_sqlite(path: str | Path, warn: bool = True) -> list[SessionSt
 
     sessions: dict[str, SessionStats] = {}
     skipped = 0
+    saw_usage = False
 
     try:
         cur = conn.cursor()
@@ -147,6 +148,8 @@ def parse_opencode_sqlite(path: str | Path, warn: bool = True) -> list[SessionSt
                     if st is None:
                         st = SessionStats(agent="opencode", session_key=s_id)
                         sessions[s_id] = st
+                    if isinstance(msg_obj.get("tokens"), dict) or isinstance(msg_obj.get("usage"), dict):
+                        saw_usage = True
                     try:
                         _process_opencode_event(msg_obj, st)
                     except (ValueError, TypeError, AttributeError):
@@ -155,6 +158,18 @@ def parse_opencode_sqlite(path: str | Path, warn: bool = True) -> list[SessionSt
                         skipped += 1
     finally:
         conn.close()
+
+    if not saw_usage:
+        # `session` and `message` are generic table names. Without a single
+        # usage payload this is some other tool's database that happens to
+        # match the shape, and reporting its rows as OpenCode sessions would
+        # be a misdetection dressed up as a result.
+        if warn and sessions:
+            print(
+                f"agent-cost: {p.name}: no OpenCode usage payload found, ignored",
+                file=sys.stderr,
+            )
+        return []
 
     if warn and skipped:
         print(

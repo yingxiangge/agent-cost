@@ -214,3 +214,23 @@ def test_empty_tool_call_list_counts_nothing(tmp_path):
 
     db = _make_db(tmp_path, [{"tokens": {"input": 1, "output": 1}, "toolCalls": []}])
     assert parse_opencode_sqlite(db)[0].tool_calls == 0
+
+
+def test_unrelated_database_with_matching_table_names_is_ignored(tmp_path, capsys):
+    """`session`/`message` are generic names; without usage it is not OpenCode."""
+    import sqlite3
+
+    from agent_cost.parsers.opencode import parse_opencode_sqlite
+
+    db = tmp_path / "notes.db"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE session (id TEXT PRIMARY KEY, created_at TEXT, updated_at TEXT, modelID TEXT)")
+    conn.execute("CREATE TABLE message (id INTEGER PRIMARY KEY, session_id TEXT, data TEXT)")
+    conn.execute("INSERT INTO session VALUES ('s1', 't', 't', '')")
+    # A row that would otherwise be counted as a tool call.
+    conn.execute("""INSERT INTO message (session_id, data) VALUES ('s1', '{"tool": "hammer"}')""")
+    conn.commit()
+    conn.close()
+
+    assert parse_opencode_sqlite(db) == []
+    assert "no OpenCode usage payload found" in capsys.readouterr().err
