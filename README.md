@@ -29,21 +29,23 @@ changes the unit price.
 ## Install
 
 ```bash
+pip install agent-cost-tracker
+```
+
+The distribution is named `agent-cost-tracker` because `agent-cost` is taken
+on PyPI; the command it installs is `agent-cost`.
+
+```bash
+# Run it without installing
+pipx run --spec agent-cost-tracker agent-cost compare ~/.claude/projects/
+
+# Or from source
 git clone https://github.com/yingxiangge/agent-cost.git
 cd agent-cost
 pip install -e .
 ```
 
 Requires Python 3.10+.
-
-Not on PyPI yet. The distribution will be published as **`agent-cost-tracker`**
-— `agent-cost` is taken on PyPI — while the command it installs stays
-`agent-cost`:
-
-```bash
-pip install agent-cost-tracker
-pipx run --spec agent-cost-tracker agent-cost compare ~/.claude/projects/
-```
 
 ## Usage
 
