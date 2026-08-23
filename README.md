@@ -36,8 +36,14 @@ pip install -e .
 
 Requires Python 3.10+.
 
-Not on PyPI yet — `pip install agent-cost` and `pipx run agent-cost` start
-working with the first tagged release.
+Not on PyPI yet. The distribution will be published as **`agent-cost-tracker`**
+— `agent-cost` is taken on PyPI — while the command it installs stays
+`agent-cost`:
+
+```bash
+pip install agent-cost-tracker
+pipx run --spec agent-cost-tracker agent-cost compare ~/.claude/projects/
+```
 
 ## Usage
 

@@ -5,6 +5,15 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-08-23
+
+### Changed
+- **The PyPI distribution is named `agent-cost-tracker`.** `agent-cost` is
+  refused by PyPI: it already hosts `agentcost`, and PyPI compares names after
+  stripping `.`/`_`/`-` and folding `l`/`i` to `1` and `o` to `0`, under which
+  both collapse to `agentc0st`. Only the distribution name changes — the
+  command installed is still `agent-cost`, and the repository keeps its name.
+
 ## [0.2.0] - 2026-08-23
 
 ### Added
