@@ -6,25 +6,39 @@
 
 **Token, cache and context observability for AI coding agents.**
 
-AI coding agents are expensive not because they have no cache — they usually
-have too much of it. `agent-cost` is a read-only CLI that shows you, per
-session or across multiple agents, how many tokens were really burned, where
-the context went, and which agent delivers the best prompt-caching efficiency.
-
-It was built from real-world usage across Codex, Hermes, and Claude Code. Across
-72 real Claude Code sessions (63.7M characters of transcript), the context
-attribution comes out as:
+**A 98.7% cache hit rate did not make my coding agent cheap.** Measured across
+82 real Claude Code sessions on one machine (2026-08-23):
 
 ```text
-tool_output   94.8%
-assistant      4.3%
-user           0.5%
+Prompt tokens     8,690,279,614
+  cache read      8,579,120,394    98.7%
+  cache write       111,034,321
+  genuinely new         124,899    0.0014%
+Output               33,139,293
+Turns                     29,791
+```
+
+**Every turn drags ~292K tokens of context to produce ~1.1K of output — a
+262:1 ratio.** The cache is doing its job; it discounts that prompt rather
+than shrinking it. A high hit rate does not protect you from unbounded context
+growth, it only changes the unit price.
+
+Where the bulk comes from, over 54.3M characters of transcript:
+
+```text
+tool_output   93.9%
+assistant      4.9%
+user           0.8%
 tool_calls     0.1%
 ```
 
-Those same sessions total 9.1B billed prompt tokens at a 98.7% cache hit rate —
-a high hit rate does not protect you from unbounded context growth, it only
-changes the unit price.
+`agent-cost` is a read-only CLI that measures this for you, per session or
+across agents: how many tokens were really burned, where the context went, and
+which agent delivers the best prompt-caching efficiency. It reads Codex,
+Hermes, Claude Code and OpenCode sessions.
+
+The figures above are one developer's machine, not a study, and they move as
+sessions accumulate — run it on your own and see what you get.
 
 ## Install
 
