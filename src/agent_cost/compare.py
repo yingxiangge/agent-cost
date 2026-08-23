@@ -153,7 +153,7 @@ def compare_sessions(
 
         # Cost saving impact
         if total_savings > 0:
-            insights.append(f"Prompt caching saved approx. ${total_savings:.2f} across analyzed sessions.")
+            insights.append(f"Prompt caching saved approx. ${total_savings:,.2f} across analyzed sessions.")
 
     unpriced = sum(1 for s in sessions if s.cost_status == "unknown")
     if unpriced:

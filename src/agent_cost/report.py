@@ -4,6 +4,11 @@ from agent_cost.compare import CompareResult
 from agent_cost.models import SessionStats
 
 
+def _is_empty_session(stats: SessionStats) -> bool:
+    """A session that recorded nothing: no tokens, no turns, no tool calls."""
+    return stats.total_tokens == 0 and stats.turns == 0 and stats.tool_calls == 0
+
+
 def _num(value: int) -> str:
     return f"{value:,}"
 
@@ -150,17 +155,34 @@ def format_compare(result: CompareResult, by_agent: bool = True) -> str:
     )
     lines.append("")
 
+    # Key Insights sit above the per-session table: the table can run to dozens
+    # of rows, and a reader who scrolls to the bottom of it should not have to
+    # scroll back up to find what the numbers mean.
+    if result.insights:
+        lines.append("Key Insights:")
+        for ins in result.insights:
+            lines.append(f"  • {ins}")
+        lines.append("")
+
     # Detailed session breakdown if multiple sessions
     if not by_agent or len(result.sessions) <= 10:
         lines.append("Session Details:")
         lines.append(f"{'AGENT':<12} {'MODEL':<20} {'TOTAL TOKENS':>12} {'CACHED %':>9} {'EST. USD':>9}  SESSION")
         lines.append("-" * 78)
-        for r in sorted(result.sessions, key=lambda x: x.total_tokens, reverse=True):
+        shown = [r for r in result.sessions if not _is_empty_session(r)]
+        hidden = len(result.sessions) - len(shown)
+        for r in sorted(shown, key=lambda x: x.total_tokens, reverse=True):
             m = r.model[:18] if r.model else "-"
             key = r.session_key[:24] if r.session_key else "?"
             lines.append(
                 f"{r.agent:<12} {m:<20} {_num(r.total_tokens):>12} {r.cache_hit_rate*100:>8.1f}% "
                 f"{_usd(r.estimated_cost_usd, r.cost_status, 9)}  {key}"
+            )
+        if hidden:
+            # Empty sessions carry no information and are numerous enough to
+            # fill the last screen with zeros, burying the totals above them.
+            lines.append(
+                f"({hidden} session(s) with no recorded usage omitted; --json lists every session)"
             )
         lines.append("")
 
@@ -177,11 +199,5 @@ def format_compare(result: CompareResult, by_agent: bool = True) -> str:
             "run on a subscription."
         )
         lines.append("")
-
-    # Key Insights
-    if result.insights:
-        lines.append("Key Insights:")
-        for ins in result.insights:
-            lines.append(f"  • {ins}")
 
     return "\n".join(lines)
