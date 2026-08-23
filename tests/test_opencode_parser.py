@@ -187,3 +187,30 @@ def test_non_sqlite_file_is_a_negative_probe_not_a_crash(tmp_path):
     junk = tmp_path / "notes.db"
     junk.write_text("this is not a database")
     assert parse_opencode_sqlite(junk) == []
+
+
+def test_multiple_tool_calls_in_one_message_are_counted_individually(tmp_path):
+    """An assistant turn can invoke several tools; one message != one call."""
+    from agent_cost.parsers.opencode import parse_opencode_sqlite
+
+    db = _make_db(
+        tmp_path,
+        [{"tokens": {"input": 1, "output": 1}, "toolCalls": ["read_file", "grep", "edit"]}],
+    )
+    assert parse_opencode_sqlite(db)[0].tool_calls == 3
+
+
+def test_tool_call_chars_exclude_list_punctuation(tmp_path):
+    """str() on the list would bill its brackets and quotes as tool content."""
+    from agent_cost.parsers.opencode import parse_opencode_sqlite
+
+    db = _make_db(tmp_path, [{"tokens": {"input": 1, "output": 1}, "toolCalls": ["read_file"]}])
+    stats = parse_opencode_sqlite(db)[0]
+    assert stats.source_chars["tool_calls"] == len("read_file")
+
+
+def test_empty_tool_call_list_counts_nothing(tmp_path):
+    from agent_cost.parsers.opencode import parse_opencode_sqlite
+
+    db = _make_db(tmp_path, [{"tokens": {"input": 1, "output": 1}, "toolCalls": []}])
+    assert parse_opencode_sqlite(db)[0].tool_calls == 0

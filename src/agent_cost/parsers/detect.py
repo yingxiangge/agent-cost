@@ -27,7 +27,7 @@ def load_path(path: str | Path, warn: bool = True) -> list[SessionStats]:
 
     if p.is_dir():
         for file in sorted(p.rglob("*")):
-            if file.is_file() and (file.suffix in (".json", ".jsonl", ".db", ".sqlite", ".sqlite3") or file.name == "opencode.db"):
+            if file.is_file() and file.suffix in (".json", ".jsonl", ".db", ".sqlite", ".sqlite3"):
                 try:
                     loaded = parse_file(file)
                 except Exception as exc:  # noqa: BLE001 - one bad file must not abort a scan
@@ -63,7 +63,7 @@ def parse_file(path: str | Path) -> list[SessionStats]:
     if p.name == "sessions.json":
         return parse_hermes_sessions(p)
 
-    if p.suffix in (".db", ".sqlite", ".sqlite3") or p.name == "opencode.db":
+    if p.suffix in (".db", ".sqlite", ".sqlite3"):
         return parse_opencode_sqlite(p)
 
     if p.suffix == ".json":

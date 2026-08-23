@@ -195,9 +195,22 @@ def _process_opencode_event(event: dict, stats: SessionStats) -> None:
 
     # Step or turn level parsing
     if event.get("type") in ("tool_call", "action") or "tool" in event or "toolCalls" in event or "tools" in event:
-        stats.tool_calls += 1
-        tool = event.get("tool") or event.get("action") or event.get("toolCalls") or ""
-        stats.source_chars["tool_calls"] = stats.source_chars.get("tool_calls", 0) + _chars(tool)
+        # First key that is actually present wins -- an `or` chain would treat an
+        # explicitly empty tool list as absent and fall through to counting one.
+        tool = next(
+            (event[k] for k in ("tool", "action", "toolCalls", "tools") if event.get(k) is not None),
+            "",
+        )
+        if isinstance(tool, (list, tuple)):
+            # One assistant message can carry several tool calls. Counting the
+            # message as a single call under-reports every multi-tool turn, and
+            # `str()` on the list would bill its brackets and quotes as content.
+            stats.tool_calls += len(tool)
+            chars = sum(_chars(t) for t in tool)
+        else:
+            stats.tool_calls += 1
+            chars = _chars(tool)
+        stats.source_chars["tool_calls"] = stats.source_chars.get("tool_calls", 0) + chars
 
     if event.get("type") == "compaction":
         stats.compaction_events += 1

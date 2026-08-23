@@ -40,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `data` columns are decoded rather than dropped, and the unreachable
   read-write connection fallback — which contradicted the read-only guarantee
   — is gone.
+- **Tool calls in a `toolCalls` list are counted individually.** A single
+  assistant message carrying three tool invocations was counted as one call,
+  under-reporting every multi-tool turn, and `str()` on the list billed its
+  brackets and quotes as tool content. An explicitly empty list now counts
+  zero calls instead of one.
 - **Format detection no longer stops after 15 lines.** It streams the file until
   a signature appears, so a transcript whose opening lines are metadata and user
   text is no longer misclassified. Five of 72 real Claude Code transcripts were
