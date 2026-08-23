@@ -15,12 +15,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inference adds 1.1x on every category; the two stack. Parsers that cannot
   observe these modes (Codex, Hermes, OpenCode) record no buckets and are
   priced off the flat totals exactly as before.
+- **OpenCode SQLite session store.** `~/.local/share/opencode/opencode.db` is
+  read directly through a read-only URI, alongside the existing JSON/JSONL
+  exports, giving real per-turn `input` / `output` / `cache.read` /
+  `cache.write` counts instead of empty sessions.
+- **PyPI release workflow** (`.github/workflows/publish.yml`): builds, runs
+  `twine check`, and publishes through trusted publishing on a GitHub release.
 - **`--subscription`** reports costs as API-equivalent value rather than money
   spent, for Claude Pro/Max sessions that generate no per-token charges. The
   flag is explicit because transcripts carry no field distinguishing
   subscription from metered API usage (`service_tier` is `standard` for both).
 
 ### Fixed
+- **The build no longer fails on modern setuptools.** `license = "MIT"` is a
+  PEP 639 expression, and setuptools >= 77 rejects a project that also carries
+  a `License ::` classifier — which took down both CI (`pip install -e .`) and
+  the publish workflow, since each resolves setuptools in an isolated build
+  environment. The classifier is removed and `requires` raised to `>= 77`.
+- **The OpenCode SQLite parser no longer under-reports silently.** A bare
+  `except Exception: pass` around the message loop meant the first unreadable
+  row ended the scan and the partial totals were returned as if complete
+  (measured: 1 turn / 100 tokens instead of 2 / 200, nothing on stderr). Bad
+  rows are now counted and reported; the rows after them still count. BLOB
+  `data` columns are decoded rather than dropped, and the unreachable
+  read-write connection fallback — which contradicted the read-only guarantee
+  — is gone.
 - **Format detection no longer stops after 15 lines.** It streams the file until
   a signature appears, so a transcript whose opening lines are metadata and user
   text is no longer misclassified. Five of 72 real Claude Code transcripts were
@@ -55,14 +74,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   added Fable 5, Opus 5/4.8/4.7/4.6/4.1, Sonnet 5, Sonnet 4.6, and Haiku 4.5.
   Claude Code writes model ids like `claude-opus-5`, none of which the previous
   table covered.
-- OpenCode support is documented as **experimental**: it parses a JSON export
-  shape, not the SQLite session store current OpenCode actually writes.
 - Added `pricing.example.json` as a template for supplying your own rate cards.
 
 ### Known approximations
 - `cache_write` is priced at the 5-minute rate (1.25x input). The usage payload
   does not record which cache TTL was used, so sessions relying on the 1-hour
   cache (2x input) are undercounted.
+- OpenCode's native `tokens.input` is assumed to exclude `cache.read`
+  (Anthropic semantics). The AI SDK flattens every provider onto that one key,
+  so an OpenAI-backed OpenCode session double-counts the cached prefix. Needs
+  checking against a real OpenAI-backed `opencode.db`.
 - On a Claude Pro/Max subscription the dollar figures are shadow costs — what
   the tokens would have cost on metered API billing — not an actual bill.
 

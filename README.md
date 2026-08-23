@@ -29,19 +29,15 @@ changes the unit price.
 ## Install
 
 ```bash
-# Install via pip
-pip install agent-cost
-
-# Or run directly via pipx without installing
-pipx run agent-cost compare ~/.claude/projects/
-
-# Development install from source
 git clone https://github.com/yingxiangge/agent-cost.git
 cd agent-cost
 pip install -e .
 ```
 
 Requires Python 3.10+.
+
+Not on PyPI yet — `pip install agent-cost` and `pipx run agent-cost` start
+working with the first tagged release.
 
 ## Usage
 
