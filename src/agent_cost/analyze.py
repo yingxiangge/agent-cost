@@ -102,6 +102,7 @@ def analyze(stats: SessionStats) -> dict:
         "largest_sources": [],
         "tool_breakdown": [],
         "tool_categories": {},
+        "image_summary": None,
     }
 
     samples = [s["estimated_prompt_tokens"] for s in stats.context_samples]
@@ -156,10 +157,14 @@ def analyze(stats: SessionStats) -> dict:
 
     if stats.tool_stats:
         for tool_name, info in sorted(
-            stats.tool_stats.items(), key=lambda kv: kv[1].get("output_chars", 0), reverse=True
+            stats.tool_stats.items(),
+            key=lambda kv: (kv[1].get("output_chars", 0), kv[1].get("image_tokens", 0)),
+            reverse=True,
         ):
             out_chars = info.get("output_chars", 0)
             calls = info.get("calls", 0)
+            images = info.get("images", 0)
+            image_tokens = info.get("image_tokens", 0)
             pct = round(out_chars * 100 / total_tool_output, 1) if total_tool_output else 0.0
             avg_chars = round(out_chars / calls) if calls else 0
             cat_key, cat_label = classify_tool(tool_name)
@@ -172,13 +177,19 @@ def analyze(stats: SessionStats) -> dict:
                 "output_chars": out_chars,
                 "percent": pct,
                 "avg_chars_per_call": avg_chars,
+                "images": images,
+                "image_tokens": image_tokens,
             })
 
             cat = category_stats.setdefault(
-                cat_key, {"label": cat_label, "output_chars": 0, "calls": 0, "tools": []}
+                cat_key,
+                {"label": cat_label, "output_chars": 0, "calls": 0, "tools": [],
+                 "images": 0, "image_tokens": 0},
             )
             cat["output_chars"] += out_chars
             cat["calls"] += calls
+            cat["images"] += images
+            cat["image_tokens"] += image_tokens
             if tool_name not in cat["tools"]:
                 cat["tools"].append(tool_name)
 
@@ -220,7 +231,27 @@ def analyze(stats: SessionStats) -> dict:
                     )
                     signals["recommendations"].append(sug)
 
-    # 4. Check for high call frequency with small/repetitive calls
+    # 4. Images ride on pixel dimensions, not character counts, so they are
+    #    surfaced on their own rather than mixed into the tool output ranking.
+    if stats.image_count:
+        image_sources = [i for i in tool_breakdown if i["images"]]
+        signals["image_summary"] = {
+            "images": stats.image_count,
+            "image_tokens": stats.image_tokens,
+            "tools": [
+                {"tool": i["tool"], "images": i["images"], "image_tokens": i["image_tokens"]}
+                for i in sorted(image_sources, key=lambda i: i["image_tokens"], reverse=True)
+            ],
+        }
+        if stats.image_tokens >= 10_000:
+            via = ", ".join(i["tool"] for i in image_sources[:3]) or "tools"
+            signals["recommendations"].append(
+                f"Images are a major context source ({stats.image_count} images via {via}, "
+                f"~{stats.image_tokens:,} tokens): they are billed on pixel dimensions, so crop or "
+                "downscale before attaching, and avoid carrying old screenshots across turns."
+            )
+
+    # 5. Check for high call frequency with small/repetitive calls
     for item in tool_breakdown:
         if item["calls"] >= 12 and item["avg_chars_per_call"] < 500:
             signals["recommendations"].append(

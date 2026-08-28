@@ -3,11 +3,37 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from agent_cost.media import estimate_image_tokens
 from agent_cost.models import SessionStats
 
 
 def _chars(text: object) -> int:
     return len(str(text or ""))
+
+
+def _result_chars(result: object) -> tuple[int, int, int]:
+    """Split a tool_result payload into (text chars, image count, image tokens).
+
+    An image block carries its pixels as base64 under `source.data`. Stringifying
+    that block would charge a screenshot hundreds of thousands of characters and
+    bury every text tool underneath it, so images are counted separately and
+    priced on their dimensions instead.
+    """
+    if not isinstance(result, list):
+        return _chars(result), 0, 0
+
+    chars = images = image_tokens = 0
+    for block in result:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "image":
+            source = block.get("source")
+            data = source.get("data") if isinstance(source, dict) else ""
+            images += 1
+            image_tokens += estimate_image_tokens(str(data or ""))
+            continue
+        chars += _chars(block.get("text") or block.get("content") or block)
+    return chars, images, image_tokens
 
 
 def parse_claude_session(path: str | Path) -> SessionStats:
@@ -135,15 +161,8 @@ def _process_claude_event(
                         or (last_tool[0] if last_tool else "tool")
                     )
                     res_text = block.get("content") or block.get("text") or ""
-                    if isinstance(res_text, list):
-                        chars = sum(
-                            _chars(b.get("text") or b.get("content") or b)
-                            for b in res_text
-                            if isinstance(b, dict)
-                        )
-                    else:
-                        chars = _chars(res_text)
-                    stats.record_tool_output(tool_name, chars)
+                    chars, images, image_tokens = _result_chars(res_text)
+                    stats.record_tool_output(tool_name, chars, images, image_tokens)
                 elif btype == "text":
                     text = block.get("text") or ""
                     stats.source_chars["assistant"] = stats.source_chars.get("assistant", 0) + _chars(text)
@@ -155,15 +174,8 @@ def _process_claude_event(
             or (last_tool[0] if last_tool else "tool")
         )
         res_text = event.get("content") or event.get("text") or ""
-        if isinstance(res_text, list):
-            chars = sum(
-                _chars(b.get("text") or b.get("content") or b)
-                for b in res_text
-                if isinstance(b, dict)
-            )
-        else:
-            chars = _chars(res_text)
-        stats.record_tool_output(tool_name, chars)
+        chars, images, image_tokens = _result_chars(res_text)
+        stats.record_tool_output(tool_name, chars, images, image_tokens)
     elif isinstance(content, str):
         role = event.get("role") or event.get("type") or "user"
         stats.source_chars[role] = stats.source_chars.get(role, 0) + _chars(content)

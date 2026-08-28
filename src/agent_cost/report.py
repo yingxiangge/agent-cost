@@ -88,11 +88,25 @@ def format_analyze(stats: SessionStats, signals: dict) -> str:
         lines.append("Tool output breakdown:")
         for item in signals["tool_breakdown"][:6]:
             avg_str = f"~{item['avg_chars_per_call']:,} chars/call"
+            img_str = (
+                f" +{item['images']} img ~{item['image_tokens']:,} tok"
+                if item.get("images")
+                else ""
+            )
             lines.append(
                 f"  {item['tool']:<18} {item['percent']:>5.1f}%  "
-                f"({item['output_chars']:,} chars, {item['calls']} calls, {avg_str}) "
+                f"({item['output_chars']:,} chars, {item['calls']} calls, {avg_str}{img_str}) "
                 f"[{item['category_label']}]"
             )
+    if signals.get("image_summary"):
+        summary = signals["image_summary"]
+        via = ", ".join(
+            f"{t['tool']} x{t['images']}" for t in summary["tools"][:3]
+        )
+        lines.append(
+            f"Images: {summary['images']} attached, ~{summary['image_tokens']:,} tokens"
+            + (f" (via {via})" if via else "")
+        )
     if stats.compaction_events:
         lines.append(f"Compactions: {stats.compaction_events}")
     if stats.context_samples:

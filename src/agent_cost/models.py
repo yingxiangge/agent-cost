@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
+def _new_tool_entry() -> dict[str, int]:
+    return {"calls": 0, "output_chars": 0, "images": 0, "image_tokens": 0}
+
+
 @dataclass
 class SessionStats:
     """Aggregated usage statistics for one agent session."""
@@ -26,7 +30,11 @@ class SessionStats:
     compaction_events: int = 0
     context_samples: list[dict] = field(default_factory=list)
     source_chars: dict[str, int] = field(default_factory=dict)
-    # Detailed tool usage split by tool name: {tool_name: {"calls": int, "output_chars": int}}
+    # Detailed tool usage split by tool name:
+    # {tool_name: {"calls": int, "output_chars": int, "images": int, "image_tokens": int}}
+    # Images are tracked apart from output_chars: a screenshot is billed on its
+    # pixel dimensions, so folding its base64 payload into a character count
+    # would swamp every text tool with a number that means nothing.
     tool_stats: dict[str, dict[str, int]] = field(default_factory=dict)
     # Tokens split by billing mode, keyed "<speed>|<inference_geo>". Fast mode and
     # US-pinned inference are priced differently and can change mid-session, so
@@ -37,18 +45,32 @@ class SessionStats:
     def record_tool_call(self, tool_name: str, char_count: int = 0) -> None:
         """Record a tool invocation and optional request character footprint."""
         name = str(tool_name or "unknown")
-        entry = self.tool_stats.setdefault(name, {"calls": 0, "output_chars": 0})
+        entry = self.tool_stats.setdefault(name, _new_tool_entry())
         entry["calls"] += 1
         self.tool_calls += 1
         if char_count > 0:
             self.source_chars["tool_calls"] = self.source_chars.get("tool_calls", 0) + char_count
 
-    def record_tool_output(self, tool_name: str, output_chars: int) -> None:
-        """Record tool output characters attributed to a specific tool."""
+    def record_tool_output(
+        self,
+        tool_name: str,
+        output_chars: int,
+        images: int = 0,
+        image_tokens: int = 0,
+    ) -> None:
+        """Record tool output attributed to a specific tool.
+
+        `output_chars` counts textual payload only. Images are recorded as a
+        count plus their estimated token footprint and deliberately kept out of
+        both `output_chars` and `source_chars`, which are character pools.
+        """
         name = str(tool_name or "unknown")
-        entry = self.tool_stats.setdefault(name, {"calls": 0, "output_chars": 0})
-        entry["output_chars"] += output_chars
-        self.source_chars["tool_output"] = self.source_chars.get("tool_output", 0) + output_chars
+        entry = self.tool_stats.setdefault(name, _new_tool_entry())
+        entry["output_chars"] = entry.get("output_chars", 0) + output_chars
+        entry["images"] = entry.get("images", 0) + images
+        entry["image_tokens"] = entry.get("image_tokens", 0) + image_tokens
+        if output_chars:
+            self.source_chars["tool_output"] = self.source_chars.get("tool_output", 0) + output_chars
 
     def add_usage(
         self,
@@ -73,6 +95,14 @@ class SessionStats:
         bucket["output"] += output_tokens
         bucket["cache_read"] += cache_read
         bucket["cache_write"] += cache_write
+
+    @property
+    def image_count(self) -> int:
+        return sum(info.get("images", 0) for info in self.tool_stats.values())
+
+    @property
+    def image_tokens(self) -> int:
+        return sum(info.get("image_tokens", 0) for info in self.tool_stats.values())
 
     @property
     def prompt_tokens(self) -> int:

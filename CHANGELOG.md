@@ -5,6 +5,23 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Screenshots are no longer counted as file-read text.** A `tool_result`
+  image block carries its pixels as base64 under `source.data`, and the Claude
+  parser stringified the whole block into its character count: a single 1080x1920
+  screenshot was charged ~600,000 characters. On a real session that put `Read`
+  at 97.5% of tool output with a bogus ~124,706 chars/call average, buried the
+  actual top source (`Bash`), and produced the wrong advice ("use windowed
+  reads") for a session whose context was really going to screenshots.
+  Images are now counted apart from the character pools and priced on their
+  pixel dimensions (`width * height / 750`, capped at the per-image ceiling,
+  read from the PNG/JPEG header without decoding the body). `analyze` reports
+  them on their own line with a suggestion of their own, and `tool_stats` gains
+  `images` / `image_tokens` per tool. Codex and OpenCode read their tool output
+  from string fields and were never affected.
+
 ## [0.3.0] - 2026-08-28
 
 ### Added
