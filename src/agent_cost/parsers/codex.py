@@ -24,6 +24,8 @@ def parse_codex_rollout(path: str | Path) -> SessionStats:
     base_chars = 0
     cumulative_chars = 0
     turn_idx = 0
+    call_id_map: dict[str, str] = {}
+    last_tool_name = "exec_command"
 
     with Path(path).open(encoding="utf-8") as fh:
         for line in fh:
@@ -64,13 +66,24 @@ def parse_codex_rollout(path: str | Path) -> SessionStats:
             elif etype == "response_item":
                 item_type = payload.get("type")
                 if item_type in _TOOL_TYPES:
-                    stats.tool_calls += 1
-                    text = payload.get("name") or payload.get("tool") or ""
-                    stats.source_chars["tool_calls"] = stats.source_chars.get("tool_calls", 0) + _chars(text)
+                    name = str(payload.get("name") or payload.get("tool") or item_type)
+                    call_id = payload.get("id") or payload.get("call_id")
+                    if call_id:
+                        call_id_map[str(call_id)] = name
+                    last_tool_name = name
+                    stats.record_tool_call(name, _chars(name))
                 elif item_type in _TOOL_OUTPUT_TYPES:
+                    call_id = payload.get("id") or payload.get("call_id")
+                    name = (
+                        (call_id_map.get(str(call_id)) if call_id else None)
+                        or payload.get("name")
+                        or last_tool_name
+                        or "exec_command"
+                    )
                     text = payload.get("output") or payload.get("result") or payload.get("text") or ""
-                    stats.source_chars["tool_output"] = stats.source_chars.get("tool_output", 0) + _chars(text)
-                    cumulative_chars += _chars(text)
+                    chars = _chars(text)
+                    stats.record_tool_output(name, chars)
+                    cumulative_chars += chars
                 elif item_type == "message":
                     text = payload.get("text") or payload.get("content") or ""
                     role = payload.get("role") or "unknown"

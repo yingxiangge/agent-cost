@@ -33,6 +33,8 @@ def parse_claude_session(path: str | Path) -> SessionStats:
     # Process JSONL format (standard Claude Code transcript)
     turns = 0
     cumulative_chars = 0
+    tool_map: dict[str, str] = {}
+    last_tool: list[str] = ["tool"]
     with p.open(encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
@@ -43,14 +45,19 @@ def parse_claude_session(path: str | Path) -> SessionStats:
             except json.JSONDecodeError:
                 continue
 
-            _process_claude_event(event, stats)
+            _process_claude_event(event, stats, tool_map=tool_map, last_tool=last_tool)
 
     if stats.turns == 0 and turns > 0:
         stats.turns = turns
     return stats
 
 
-def _process_claude_event(event: dict, stats: SessionStats) -> None:
+def _process_claude_event(
+    event: dict,
+    stats: SessionStats,
+    tool_map: dict[str, str] | None = None,
+    last_tool: list[str] | None = None,
+) -> None:
     # Session metadata if present
     if "session_id" in event or "sessionId" in event:
         stats.session_key = str(event.get("session_id") or event.get("sessionId") or stats.session_key)
@@ -113,15 +120,50 @@ def _process_claude_event(event: dict, stats: SessionStats) -> None:
             if isinstance(block, dict):
                 btype = block.get("type")
                 if btype == "tool_use":
-                    stats.tool_calls += 1
-                    tool_name = block.get("name") or "tool"
-                    stats.source_chars["tool_calls"] = stats.source_chars.get("tool_calls", 0) + _chars(tool_name)
+                    tool_name = str(block.get("name") or "tool")
+                    tool_id = block.get("id")
+                    if tool_id and tool_map is not None:
+                        tool_map[str(tool_id)] = tool_name
+                    if last_tool is not None:
+                        last_tool[0] = tool_name
+                    stats.record_tool_call(tool_name, _chars(tool_name))
                 elif btype == "tool_result":
+                    tool_use_id = block.get("tool_use_id")
+                    tool_name = (
+                        (tool_map.get(str(tool_use_id)) if tool_map and tool_use_id else None)
+                        or block.get("name")
+                        or (last_tool[0] if last_tool else "tool")
+                    )
                     res_text = block.get("content") or block.get("text") or ""
-                    stats.source_chars["tool_output"] = stats.source_chars.get("tool_output", 0) + _chars(res_text)
+                    if isinstance(res_text, list):
+                        chars = sum(
+                            _chars(b.get("text") or b.get("content") or b)
+                            for b in res_text
+                            if isinstance(b, dict)
+                        )
+                    else:
+                        chars = _chars(res_text)
+                    stats.record_tool_output(tool_name, chars)
                 elif btype == "text":
                     text = block.get("text") or ""
                     stats.source_chars["assistant"] = stats.source_chars.get("assistant", 0) + _chars(text)
+    if etype == "tool_result" and not isinstance(content, list):
+        tool_use_id = event.get("tool_use_id")
+        tool_name = (
+            (tool_map.get(str(tool_use_id)) if tool_map and tool_use_id else None)
+            or event.get("name")
+            or (last_tool[0] if last_tool else "tool")
+        )
+        res_text = event.get("content") or event.get("text") or ""
+        if isinstance(res_text, list):
+            chars = sum(
+                _chars(b.get("text") or b.get("content") or b)
+                for b in res_text
+                if isinstance(b, dict)
+            )
+        else:
+            chars = _chars(res_text)
+        stats.record_tool_output(tool_name, chars)
     elif isinstance(content, str):
         role = event.get("role") or event.get("type") or "user"
         stats.source_chars[role] = stats.source_chars.get(role, 0) + _chars(content)
@@ -133,16 +175,20 @@ def _parse_claude_dict(data: dict, stats: SessionStats) -> SessionStats:
     stats.created_at = str(data.get("created_at") or "")
     stats.updated_at = str(data.get("updated_at") or "")
 
+    tool_map: dict[str, str] = {}
+    last_tool: list[str] = ["tool"]
     messages = data.get("messages") or data.get("transcript") or []
     if isinstance(messages, list):
         for item in messages:
             if isinstance(item, dict):
-                _process_claude_event(item, stats)
+                _process_claude_event(item, stats, tool_map=tool_map, last_tool=last_tool)
     return stats
 
 
 def _parse_claude_records(records: list[dict], stats: SessionStats) -> SessionStats:
+    tool_map: dict[str, str] = {}
+    last_tool: list[str] = ["tool"]
     for rec in records:
         if isinstance(rec, dict):
-            _process_claude_event(rec, stats)
+            _process_claude_event(rec, stats, tool_map=tool_map, last_tool=last_tool)
     return stats

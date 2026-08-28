@@ -84,6 +84,15 @@ def format_analyze(stats: SessionStats, signals: dict) -> str:
         lines.append("Largest context sources:")
         for item in signals["largest_sources"]:
             lines.append(f"  {item['source']:<18} {item['percent']:>5.1f}%")
+    if signals.get("tool_breakdown"):
+        lines.append("Tool output breakdown:")
+        for item in signals["tool_breakdown"][:6]:
+            avg_str = f"~{item['avg_chars_per_call']:,} chars/call"
+            lines.append(
+                f"  {item['tool']:<18} {item['percent']:>5.1f}%  "
+                f"({item['output_chars']:,} chars, {item['calls']} calls, {avg_str}) "
+                f"[{item['category_label']}]"
+            )
     if stats.compaction_events:
         lines.append(f"Compactions: {stats.compaction_events}")
     if stats.context_samples:

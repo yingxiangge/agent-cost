@@ -5,6 +5,14 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Per-tool output attribution & type-specific optimization suggestions.**
+  - Parsers for Claude Code, Codex, and OpenCode now correlate `tool_result` / `function_call_output` payloads back to the originating tool name (`Bash`, `view_file`, `ripgrep`, `grep_search`, etc.).
+  - `agent-cost analyze` breaks down tool output percentage, call count, and average payload size per tool.
+  - Automatically classifies tools into 6 standard categories (Shell, File Read, Search/Grep, File Edit, Web/Browser, Subagents) and generates actionable, type-specific suggestions to curb context bloat.
+
 ## [0.2.1] - 2026-08-23
 
 ### Changed

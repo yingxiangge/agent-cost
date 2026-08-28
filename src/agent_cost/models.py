@@ -26,11 +26,29 @@ class SessionStats:
     compaction_events: int = 0
     context_samples: list[dict] = field(default_factory=list)
     source_chars: dict[str, int] = field(default_factory=dict)
+    # Detailed tool usage split by tool name: {tool_name: {"calls": int, "output_chars": int}}
+    tool_stats: dict[str, dict[str, int]] = field(default_factory=dict)
     # Tokens split by billing mode, keyed "<speed>|<inference_geo>". Fast mode and
     # US-pinned inference are priced differently and can change mid-session, so
     # the totals above are not enough to price a session correctly. Parsers that
     # cannot observe these modes leave this empty and are priced off the totals.
     billing_buckets: dict[str, dict[str, int]] = field(default_factory=dict)
+
+    def record_tool_call(self, tool_name: str, char_count: int = 0) -> None:
+        """Record a tool invocation and optional request character footprint."""
+        name = str(tool_name or "unknown")
+        entry = self.tool_stats.setdefault(name, {"calls": 0, "output_chars": 0})
+        entry["calls"] += 1
+        self.tool_calls += 1
+        if char_count > 0:
+            self.source_chars["tool_calls"] = self.source_chars.get("tool_calls", 0) + char_count
+
+    def record_tool_output(self, tool_name: str, output_chars: int) -> None:
+        """Record tool output characters attributed to a specific tool."""
+        name = str(tool_name or "unknown")
+        entry = self.tool_stats.setdefault(name, {"calls": 0, "output_chars": 0})
+        entry["output_chars"] += output_chars
+        self.source_chars["tool_output"] = self.source_chars.get("tool_output", 0) + output_chars
 
     def add_usage(
         self,

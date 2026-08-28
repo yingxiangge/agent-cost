@@ -56,6 +56,8 @@ def parse_opencode_session(path: str | Path) -> SessionStats:
             pass
 
     # JSONL format
+    tool_map: dict[str, str] = {}
+    last_tool: list[str] = ["tool"]
     with p.open(encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
@@ -65,7 +67,7 @@ def parse_opencode_session(path: str | Path) -> SessionStats:
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            _process_opencode_event(event, stats)
+            _process_opencode_event(event, stats, tool_map=tool_map, last_tool=last_tool)
 
     return stats
 
@@ -93,6 +95,8 @@ def parse_opencode_sqlite(path: str | Path, warn: bool = True) -> list[SessionSt
     conn.row_factory = sqlite3.Row
 
     sessions: dict[str, SessionStats] = {}
+    session_tool_maps: dict[str, dict[str, str]] = {}
+    session_last_tools: dict[str, list[str]] = {}
     skipped = 0
     saw_usage = False
 
@@ -148,10 +152,12 @@ def parse_opencode_sqlite(path: str | Path, warn: bool = True) -> list[SessionSt
                     if st is None:
                         st = SessionStats(agent="opencode", session_key=s_id)
                         sessions[s_id] = st
+                    t_map = session_tool_maps.setdefault(s_id, {})
+                    l_tool = session_last_tools.setdefault(s_id, ["tool"])
                     if isinstance(msg_obj.get("tokens"), dict) or isinstance(msg_obj.get("usage"), dict):
                         saw_usage = True
                     try:
-                        _process_opencode_event(msg_obj, st)
+                        _process_opencode_event(msg_obj, st, tool_map=t_map, last_tool=l_tool)
                     except (ValueError, TypeError, AttributeError):
                         # One malformed counter must not truncate the scan: the
                         # rows after it carry usage we would otherwise lose.
@@ -197,7 +203,12 @@ def _decode_message(raw: object) -> dict | None:
     return None
 
 
-def _process_opencode_event(event: dict, stats: SessionStats) -> None:
+def _process_opencode_event(
+    event: dict,
+    stats: SessionStats,
+    tool_map: dict[str, str] | None = None,
+    last_tool: list[str] | None = None,
+) -> None:
     if "session_id" in event or "sessionId" in event:
         stats.session_key = str(event.get("session_id") or event.get("sessionId") or stats.session_key)
     if ("model" in event or "modelID" in event) and not stats.model:
@@ -208,8 +219,22 @@ def _process_opencode_event(event: dict, stats: SessionStats) -> None:
             stats.created_at = ts
         stats.updated_at = ts
 
-    # Step or turn level parsing
-    if event.get("type") in ("tool_call", "action") or "tool" in event or "toolCalls" in event or "tools" in event:
+    etype = str(event.get("type") or "")
+
+    # Tool output/results
+    if etype in ("tool_result", "action_result", "tool-result") or "tool_result" in event:
+        t_id = event.get("toolCallId") or event.get("id") or event.get("tool_use_id")
+        t_name = (
+            (tool_map.get(str(t_id)) if tool_map and t_id else None)
+            or event.get("tool")
+            or event.get("name")
+            or (last_tool[0] if last_tool else "tool")
+        )
+        res = event.get("result") or event.get("output") or event.get("content") or ""
+        chars = _chars(res)
+        stats.record_tool_output(t_name, chars)
+    # Step or turn level tool calls
+    elif etype in ("tool_call", "action", "tool-call") or "tool" in event or "toolCalls" in event or "tools" in event:
         # First key that is actually present wins -- an `or` chain would treat an
         # explicitly empty tool list as absent and fall through to counting one.
         tool = next(
@@ -217,15 +242,58 @@ def _process_opencode_event(event: dict, stats: SessionStats) -> None:
             "",
         )
         if isinstance(tool, (list, tuple)):
-            # One assistant message can carry several tool calls. Counting the
-            # message as a single call under-reports every multi-tool turn, and
-            # `str()` on the list would bill its brackets and quotes as content.
-            stats.tool_calls += len(tool)
-            chars = sum(_chars(t) for t in tool)
+            for t in tool:
+                if isinstance(t, dict):
+                    t_name = str(t.get("name") or t.get("tool") or "tool")
+                    t_id = t.get("id") or t.get("toolCallId")
+                    if t_id and tool_map is not None:
+                        tool_map[str(t_id)] = t_name
+                    if last_tool is not None:
+                        last_tool[0] = t_name
+                    stats.record_tool_call(t_name, _chars(t_name))
+                else:
+                    t_name = str(t or "tool")
+                    if last_tool is not None:
+                        last_tool[0] = t_name
+                    stats.record_tool_call(t_name, _chars(t_name))
+        elif isinstance(tool, dict):
+            t_name = str(tool.get("name") or tool.get("tool") or "tool")
+            t_id = tool.get("id") or tool.get("toolCallId")
+            if t_id and tool_map is not None:
+                tool_map[str(t_id)] = t_name
+            if last_tool is not None:
+                last_tool[0] = t_name
+            stats.record_tool_call(t_name, _chars(t_name))
         else:
-            stats.tool_calls += 1
-            chars = _chars(tool)
-        stats.source_chars["tool_calls"] = stats.source_chars.get("tool_calls", 0) + chars
+            t_name = str(tool or "tool")
+            if last_tool is not None:
+                last_tool[0] = t_name
+            stats.record_tool_call(t_name, _chars(t_name))
+
+    # Handle AI SDK / OpenCode parts list
+    parts = event.get("parts")
+    if isinstance(parts, list):
+        for p in parts:
+            if isinstance(p, dict):
+                ptype = p.get("type")
+                if ptype in ("tool-call", "tool_call"):
+                    t_name = str(p.get("toolName") or p.get("name") or p.get("tool") or "tool")
+                    t_id = p.get("toolCallId") or p.get("id")
+                    if t_id and tool_map is not None:
+                        tool_map[str(t_id)] = t_name
+                    if last_tool is not None:
+                        last_tool[0] = t_name
+                    stats.record_tool_call(t_name, _chars(t_name))
+                elif ptype in ("tool-result", "tool_result"):
+                    t_id = p.get("toolCallId") or p.get("id")
+                    t_name = (
+                        (tool_map.get(str(t_id)) if tool_map and t_id else None)
+                        or p.get("toolName")
+                        or p.get("name")
+                        or (last_tool[0] if last_tool else "tool")
+                    )
+                    res = p.get("result") or p.get("output") or p.get("content") or ""
+                    stats.record_tool_output(t_name, _chars(res))
 
     if event.get("type") == "compaction":
         stats.compaction_events += 1
@@ -292,11 +360,13 @@ def _parse_opencode_dict(data: dict, stats: SessionStats) -> SessionStats:
     stats.created_at = str(data.get("created_at") or "")
     stats.updated_at = str(data.get("updated_at") or "")
 
+    tool_map: dict[str, str] = {}
+    last_tool: list[str] = ["tool"]
     steps = data.get("steps") or data.get("history") or data.get("messages") or []
     if isinstance(steps, list):
         for step in steps:
             if isinstance(step, dict):
-                _process_opencode_event(step, stats)
+                _process_opencode_event(step, stats, tool_map=tool_map, last_tool=last_tool)
 
     # Top-level aggregate usage fallback if steps didn't have per-turn usage
     if stats.input_tokens == 0 and "usage" in data and isinstance(data["usage"], dict):
@@ -311,8 +381,10 @@ def _parse_opencode_dict(data: dict, stats: SessionStats) -> SessionStats:
 
 
 def _parse_opencode_records(records: list[dict], stats: SessionStats) -> SessionStats:
+    tool_map: dict[str, str] = {}
+    last_tool: list[str] = ["tool"]
     for rec in records:
         if isinstance(rec, dict):
-            _process_opencode_event(rec, stats)
+            _process_opencode_event(rec, stats, tool_map=tool_map, last_tool=last_tool)
     return stats
 
