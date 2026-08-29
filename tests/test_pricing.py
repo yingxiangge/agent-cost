@@ -1,4 +1,6 @@
-from agent_cost.pricing import estimate_cost, resolve_pricing
+import pytest
+
+from agent_cost.pricing import estimate_cost, resolve_pricing, validate_custom_pricing
 
 
 def test_estimate_cost_deepseek():
@@ -63,3 +65,34 @@ def test_custom_pricing_merges_instead_of_replacing():
     cost, status = estimate_cost(1_000_000, 0, 0, 0, "deepseek-chat", custom)
     assert status == "estimated"
     assert cost == 0.27
+
+
+def test_custom_pricing_allows_comment_metadata():
+    custom = {
+        "_comment": "copied from pricing.example.json",
+        "local-model": {"input": 0.0, "output": 0.0},
+    }
+
+    assert validate_custom_pricing(custom) == custom
+    cost, status = estimate_cost(1_000_000, 1_000_000, 0, 0, "local-model", custom)
+    assert status == "estimated"
+    assert cost == 0.0
+
+
+@pytest.mark.parametrize(
+    ("custom", "message"),
+    [
+        ([], "custom pricing must be a JSON object"),
+        ({"bad-model": []}, "pricing entry 'bad-model' must be an object"),
+        ({"bad-model": {"input": 1.0}}, "pricing entry 'bad-model'.output is required"),
+        (
+            {"bad-model": {"input": 1.0, "output": 2.0, "latency": 3.0}},
+            "pricing entry 'bad-model'.latency is not supported",
+        ),
+        ({"bad-model": {"input": "1", "output": 2.0}}, "pricing entry 'bad-model'.input must be a number"),
+        ({"bad-model": {"input": 1.0, "output": -2.0}}, "pricing entry 'bad-model'.output must be non-negative"),
+    ],
+)
+def test_custom_pricing_validation_errors_name_the_bad_key(custom, message):
+    with pytest.raises(ValueError, match=message):
+        validate_custom_pricing(custom)

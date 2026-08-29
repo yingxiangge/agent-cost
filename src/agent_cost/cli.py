@@ -10,13 +10,23 @@ from agent_cost.analyze import analyze
 from agent_cost.compare import compare_sessions
 from agent_cost.models import SessionStats
 from agent_cost.parsers.detect import load_path
-from agent_cost.pricing import estimate_session_cost
+from agent_cost.pricing import estimate_session_cost, validate_custom_pricing
 from agent_cost.report import format_analyze, format_compare, format_inspect, format_stats_table
 
 
 def _pricing_override() -> dict | None:
     env = __import__("os").environ.get("AGENT_COST_PRICING")
-    return json.loads(env) if env else None
+    return _parse_pricing_json(env, "AGENT_COST_PRICING") if env else None
+
+
+def _parse_pricing_json(raw: str, source: str) -> dict:
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid JSON for {source}: {exc.msg}") from exc
+    if parsed is None:
+        raise ValueError("custom pricing must be a JSON object mapping model names to rate cards")
+    return validate_custom_pricing(parsed)
 
 
 def _load_all(paths: list[str]) -> list[SessionStats]:
@@ -83,13 +93,13 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
-    custom_pricing = _pricing_override()
-    if args.pricing:
-        try:
-            custom_pricing = json.loads(args.pricing)
-        except json.JSONDecodeError:
-            print("Error: Invalid JSON for --pricing", file=sys.stderr)
-            return 2
+    try:
+        custom_pricing = _pricing_override()
+        if args.pricing:
+            custom_pricing = _parse_pricing_json(args.pricing, "--pricing")
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
 
     stats = _load_all(args.paths)
     if not stats:
