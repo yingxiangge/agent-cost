@@ -4,7 +4,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**Token, cache and context observability for AI coding agents.**
+**Token, cache and context observability — find and stop context bloat in AI coding agents.**
 
 **A 98.7% cache hit rate did not make my coding agent cheap.** Measured across
 82 real Claude Code sessions on one machine (2026-08-23):
@@ -201,12 +201,13 @@ is never priced as `gpt-5`.
 ## Roadmap
 
 - [x] `agent-cost compare`: side-by-side agent comparison with `--by-agent` and `--json`
-- [x] Claude Code / Codex / Hermes session parsing
-- [x] OpenCode: SQLite database (`opencode.db`) and JSON export parsing
+- [x] Claude Code / Codex / Hermes / OpenCode session parsing
+- [x] Tool output attribution by call type & type-specific optimization suggestions
+- [ ] Detect repeated file reads and duplicated tool output
+- [ ] Session context growth curve and budget threshold alerts
+- [ ] Task-level efficiency metrics (useful code changes vs. tool overhead)
 - [ ] Support Cursor (`composer.json` / workspace state) log formats
 - [ ] Support Cline / Roo Code conversation history formats
-- [ ] `agent-cost watch`: budget thresholds with warnings before a session blows up
-- [ ] Tool-call-level cost attribution when providers expose per-request usage
 
 ## Contributing
 
