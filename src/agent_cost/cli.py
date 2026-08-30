@@ -7,6 +7,13 @@ import sys
 from pathlib import Path
 
 from agent_cost.analyze import analyze
+from agent_cost.baseline import (
+    diff_summaries,
+    list_baselines,
+    load_baseline,
+    save_baseline,
+    split_by_cutoff,
+)
 from agent_cost.compare import compare_sessions
 from agent_cost.discover import describe_locations, discover_paths
 from agent_cost.models import SessionStats
@@ -16,6 +23,7 @@ from agent_cost.report import (
     format_analyze,
     format_compare,
     format_inspect,
+    format_diff,
     format_stats_table,
     format_summary,
 )
@@ -118,6 +126,28 @@ def main(argv: list[str] | None = None) -> int:
     p_stats = sub.add_parser("stats", help="Aggregate totals across sessions.")
     p_stats.add_argument("paths", nargs="*", help=_PATHS_HELP)
 
+    p_baseline = sub.add_parser(
+        "baseline", help="Save a snapshot of how the agents behave right now."
+    )
+    p_baseline.add_argument("paths", nargs="*", help=_PATHS_HELP)
+    p_baseline.add_argument(
+        "--label", default="default", help="Name for this baseline (default: default)."
+    )
+    p_baseline.add_argument(
+        "--list", action="store_true", default=False, help="List saved baselines and exit."
+    )
+
+    p_diff = sub.add_parser(
+        "diff", help="Compare sessions since a baseline against that baseline."
+    )
+    p_diff.add_argument("paths", nargs="*", help=_PATHS_HELP)
+    p_diff.add_argument(
+        "--against", default="default", help="Baseline to compare against (default: default)."
+    )
+    p_diff.add_argument(
+        "--json", action="store_true", default=False, help="Output the comparison as JSON."
+    )
+
     p_compare = sub.add_parser("compare", help="Compare usage, cache efficiency, and cost across multiple agents.")
     p_compare.add_argument("paths", nargs="*", help=_PATHS_HELP)
     p_compare.add_argument("--by-agent", action="store_true", default=False, help="Group comparison strictly by agent.")
@@ -132,6 +162,18 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
+
+    if args.command == "baseline" and args.list:
+        saved = list_baselines()
+        if not saved:
+            print("No baselines saved yet. Run: agent-cost baseline --label <name>")
+            return 0
+        for item in saved:
+            print(
+                f"{item['label']:<24} saved {item['cutoff'][:10]}  "
+                f"{item['sessions']} sessions"
+            )
+        return 0
 
     paths, auto_detected = _resolve_paths(args.paths)
     if not paths:
@@ -177,6 +219,54 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(summary, ensure_ascii=False))
             else:
                 print(format_summary(summary))
+    elif args.command == "baseline":
+        pairs = [(s, analyze(s)) for s in stats]
+        path = save_baseline(args.label, summarize(pairs))
+        print(
+            f"Baseline '{args.label}' saved to {path}\n"
+            f"{len(stats)} sessions recorded. Make your change, then run: "
+            f"agent-cost diff --against {args.label}"
+        )
+    elif args.command == "diff":
+        try:
+            snapshot = load_baseline(args.against)
+        except FileNotFoundError:
+            print(
+                f"No baseline named '{args.against}'. "
+                f"Save one first: agent-cost baseline --label {args.against}",
+                file=sys.stderr,
+            )
+            return 1
+        recent, undateable = split_by_cutoff(stats, snapshot["cutoff"])
+        if not recent:
+            print(
+                f"No sessions started since the baseline was saved "
+                f"({snapshot['cutoff'][:10]}); nothing to compare yet.",
+                file=sys.stderr,
+            )
+            return 1
+        for s in recent:
+            _fill_cost(s, custom_pricing, args.subscription)
+        after = summarize([(s, analyze(s)) for s in recent])
+        diff = diff_summaries(snapshot["summary"], after)
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "baseline": args.against,
+                        "cutoff": snapshot["cutoff"],
+                        "undateable_sessions": undateable,
+                        "diff": diff,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        else:
+            print(
+                format_diff(
+                    args.against, snapshot["cutoff"], diff, undateable
+                )
+            )
     elif args.command == "stats":
         for s in stats:
             _fill_cost(s, custom_pricing, args.subscription)

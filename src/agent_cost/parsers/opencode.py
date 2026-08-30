@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from agent_cost.models import SessionStats
@@ -72,6 +73,40 @@ def parse_opencode_session(path: str | Path) -> SessionStats:
     return stats
 
 
+def _epoch_ms_to_iso(value: object) -> str:
+    """Render an epoch-millisecond timestamp as UTC ISO 8601.
+
+    OpenCode stores times as integer milliseconds. Everything downstream
+    compares timestamps as ISO strings, so convert at the parser boundary
+    instead of teaching every consumer a second time format.
+    """
+    try:
+        ms = int(value)
+    except (TypeError, ValueError):
+        return ""
+    if ms <= 0:
+        return ""
+    return (
+        datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
+
+
+def _session_time(row, cols: set, iso_col: str, epoch_col: str) -> str:
+    """Read a session timestamp under either schema OpenCode has used.
+
+    JSON exports carry `created_at` / `updated_at`; the SQLite schema uses
+    `time_created` / `time_updated` in epoch milliseconds. Reading only the
+    first left every database-backed session without a timestamp.
+    """
+    if iso_col in cols and row[iso_col]:
+        return str(row[iso_col])
+    if epoch_col in cols and row[epoch_col]:
+        return _epoch_ms_to_iso(row[epoch_col])
+    return ""
+
+
 def parse_opencode_sqlite(path: str | Path, warn: bool = True) -> list[SessionStats]:
     """Parse an OpenCode SQLite database (``~/.local/share/opencode/opencode.db``).
 
@@ -117,10 +152,8 @@ def parse_opencode_sqlite(path: str | Path, warn: bool = True) -> list[SessionSt
                 for row in cur.execute(f"SELECT * FROM {tbl}"):
                     s_id = str(row[id_col])
                     st = SessionStats(agent="opencode", session_key=s_id)
-                    if "created_at" in cols and row["created_at"]:
-                        st.created_at = str(row["created_at"])
-                    if "updated_at" in cols and row["updated_at"]:
-                        st.updated_at = str(row["updated_at"])
+                    st.created_at = _session_time(row, cols, "created_at", "time_created")
+                    st.updated_at = _session_time(row, cols, "updated_at", "time_updated")
                     for model_col in ("modelID", "model_id", "model"):
                         if model_col in cols and row[model_col]:
                             st.model = str(row[model_col])

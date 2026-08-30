@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`agent-cost baseline` / `agent-cost diff`: did the change actually help?**
+  `baseline` records the current rollup and a cutoff; `diff` re-reads only the
+  sessions started after that cutoff and compares the two. The windows cover
+  different spans, so the comparison is rates only — per turn, per session, and
+  shares — and shares move in percentage points rather than percent-of-percent.
+  Sessions with no readable timestamp are excluded and counted, never folded
+  into the new window where they would flatter or spoil the result. Baselines
+  are plain JSON under `~/.agent-cost/baselines/`, written and read locally.
 - **Runs with no arguments.** Every subcommand now falls back to the locations
   the agents install into (`~/.claude/projects`, `~/.codex/sessions`,
   `~/.local/share/opencode/opencode.db`), so the first command after
@@ -19,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   where the context came from, which tools produced it, and how widespread the
   repeated reads and duplicate outputs are. `--per-session` prints the old
   per-session analyses, and `--json` follows whichever view is active.
+
+### Fixed
+- **OpenCode sessions had no timestamps.** The SQLite schema names them
+  `time_created` / `time_updated` and stores epoch milliseconds; the parser
+  read `created_at` / `updated_at`, which never matched, leaving every
+  database-backed session undated. On one machine that was 119 of 216 sessions,
+  all of which would have been excluded from baseline comparisons. JSON exports
+  carrying ISO `created_at` keep working.
 
 ## [0.4.0] - 2026-08-30
 

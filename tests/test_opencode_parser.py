@@ -234,3 +234,67 @@ def test_unrelated_database_with_matching_table_names_is_ignored(tmp_path, capsy
 
     assert parse_opencode_sqlite(db) == []
     assert "no OpenCode usage payload found" in capsys.readouterr().err
+
+
+def test_sqlite_time_created_is_read_as_a_timestamp(tmp_path):
+    """The live schema names these `time_created` / `time_updated`, in epoch ms.
+
+    Reading only `created_at` left every database-backed session undated, which
+    silently excluded all of them from baseline comparisons.
+    """
+    import json
+    import sqlite3
+
+    from agent_cost.parsers.opencode import parse_opencode_sqlite
+
+    db_file = tmp_path / "opencode.db"
+    conn = sqlite3.connect(db_file)
+    cur = conn.cursor()
+    cur.execute(
+        "CREATE TABLE session (id TEXT PRIMARY KEY, time_created INTEGER, "
+        "time_updated INTEGER, model TEXT)"
+    )
+    cur.execute("CREATE TABLE message (id INTEGER PRIMARY KEY, session_id TEXT, data TEXT)")
+    cur.execute(
+        "INSERT INTO session VALUES ('ses_1', 1786407452143, 1786416663022, 'claude-opus-5')"
+    )
+    cur.execute(
+        "INSERT INTO message VALUES (1, 'ses_1', ?)",
+        (json.dumps({"role": "assistant", "tokens": {"input": 10, "output": 5}}),),
+    )
+    conn.commit()
+    conn.close()
+
+    sessions = parse_opencode_sqlite(db_file)
+    assert len(sessions) == 1
+    assert sessions[0].created_at == "2026-08-11T00:17:32.143Z"
+    assert sessions[0].updated_at == "2026-08-11T02:51:03.022Z"
+
+
+def test_sqlite_created_at_still_wins_when_present(tmp_path):
+    """JSON-era exports carry ISO `created_at`; that schema keeps working."""
+    import json
+    import sqlite3
+
+    from agent_cost.parsers.opencode import parse_opencode_sqlite
+
+    db_file = tmp_path / "opencode.db"
+    conn = sqlite3.connect(db_file)
+    cur = conn.cursor()
+    cur.execute(
+        "CREATE TABLE session (id TEXT PRIMARY KEY, created_at TEXT, updated_at TEXT, "
+        "time_created INTEGER, time_updated INTEGER, model TEXT)"
+    )
+    cur.execute("CREATE TABLE message (id INTEGER PRIMARY KEY, session_id TEXT, data TEXT)")
+    cur.execute(
+        "INSERT INTO session VALUES ('ses_1', '2026-01-01T00:00:00Z', "
+        "'2026-01-02T00:00:00Z', 1786407452143, 1786416663022, 'claude-opus-5')"
+    )
+    cur.execute(
+        "INSERT INTO message VALUES (1, 'ses_1', ?)",
+        (json.dumps({"role": "assistant", "tokens": {"input": 10, "output": 5}}),),
+    )
+    conn.commit()
+    conn.close()
+
+    assert parse_opencode_sqlite(db_file)[0].created_at == "2026-01-01T00:00:00Z"

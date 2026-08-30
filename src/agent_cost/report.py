@@ -301,3 +301,80 @@ def format_summary(summary: dict) -> str:
     lines.append("")
     lines.append("Run with --per-session for the per-session breakdown.")
     return "\n".join(lines)
+
+
+def _delta_pct(value: float | None) -> str:
+    if value is None:
+        return "     —"
+    return f"{value * 100:+6.1f}%"
+
+
+def _metric_value(value: float, unit: str) -> str:
+    if unit == "share":
+        return f"{value * 100:.1f}%"
+    if unit == "ratio":
+        return f"{value:,.1f}"
+    return f"{round(value):,}"
+
+
+def format_diff(label: str, cutoff: str, diff: dict, undateable: int = 0) -> str:
+    """Render a baseline comparison. Rates only — see agent_cost.baseline."""
+    w = diff["windows"]
+    lines = [
+        f"{label} (saved {cutoff[:10]}, {_num(w['before_sessions'])} sessions, "
+        f"{_num(w['before_turns'])} turns)",
+        f"  vs since then ({_num(w['after_sessions'])} sessions, {_num(w['after_turns'])} turns)",
+        "──────────────────────────────",
+        f"{'':<22}{'BEFORE':>12}{'AFTER':>12}{'CHANGE':>10}",
+    ]
+    for m in diff["metrics"]:
+        change = (
+            f"{m['delta_pt'] * 100:+6.1f}pt"
+            if "delta_pt" in m
+            else _delta_pct(m["pct_change"])
+        )
+        lines.append(
+            f"{m['name']:<22}"
+            f"{_metric_value(m['before'], m['unit']):>12}"
+            f"{_metric_value(m['after'], m['unit']):>12}"
+            f"{change:>10}"
+        )
+
+    for title, key, name_key in (
+        ("Context sources", "sources", "source"),
+        ("Tool output", "tools", "tool"),
+    ):
+        rows = [r for r in diff[key] if abs(r["delta_pt"]) >= 0.001][:5]
+        if not rows:
+            continue
+        lines.append("")
+        lines.append(f"{title:<22}{'BEFORE':>12}{'AFTER':>12}{'CHANGE':>10}")
+        for r in rows:
+            lines.append(
+                f"  {r[name_key]:<20}"
+                f"{r['before_pct'] * 100:>11.1f}%"
+                f"{r['after_pct'] * 100:>11.1f}%"
+                f"{r['delta_pt'] * 100:>9.1f}pt"
+            )
+
+    if diff["waste"]:
+        lines.append("")
+        lines.append(f"{'Waste per session':<22}{'BEFORE':>12}{'AFTER':>12}{'CHANGE':>10}")
+        for r in diff["waste"]:
+            lines.append(
+                f"  {r['name']:<22}{r['before']:>10.2f}{r['after']:>12.2f}"
+                f"{_delta_pct(r['pct_change']):>10}"
+            )
+
+    lines.append("")
+    lines.append(
+        "Rates only: the two windows cover different spans, so totals are not comparable."
+    )
+    if undateable:
+        tail = (
+            "session carries no timestamp and is excluded."
+            if undateable == 1
+            else "sessions carry no timestamp and are excluded."
+        )
+        lines.append(f"{_num(undateable)} {tail}")
+    return "\n".join(lines)

@@ -119,6 +119,41 @@ agent-cost stats ~/.codex/sessions/2026/08/
 agent-cost --subscription compare ~/.claude/projects/
 ```
 
+### Did your change actually help?
+
+Measuring once tells you where the context went. It cannot tell you whether the
+fix worked. Record a baseline, change something, and compare:
+
+```bash
+agent-cost baseline --label before-rtk   # snapshot how things are now
+# ...install a tool-output compressor, rewrite CLAUDE.md, move work to subagents...
+agent-cost diff --against before-rtk     # only sessions started since the baseline
+```
+
+```text
+before-rtk (saved 2026-08-20, 216 sessions, 35,228 turns)
+  vs since then (44 sessions, 9,327 turns)
+──────────────────────────────
+                            BEFORE       AFTER    CHANGE
+Per-turn prompt            239,055     213,264    -10.8%
+Context:output ratio         250.9       192.1    -23.4%
+Cache hit                    97.1%       98.4%    +1.3pt
+
+Tool output                 BEFORE       AFTER    CHANGE
+  Bash                       73.9%       96.3%     22.4pt
+  Read                       17.7%        0.5%    -17.1pt
+
+Waste per session           BEFORE       AFTER    CHANGE
+  repeated file reads         0.78        0.14    -82.5%
+```
+
+That run is real: the reads collapsed because the sessions after 08-20 pushed
+log reading and directory scans into subagents. The comparison is rates only —
+the two windows cover different spans, so totals are not comparable — and
+sessions with no timestamp are excluded and counted rather than folded into
+either side. Baselines are plain JSON under `~/.agent-cost/baselines/`;
+`agent-cost baseline --list` shows what you have.
+
 ### Real example (`agent-cost compare`)
 
 ```text
@@ -240,8 +275,17 @@ is never priced as `gpt-5`.
 - [x] Claude Code / Codex / Hermes / OpenCode session parsing
 - [x] Tool output attribution by call type & type-specific optimization suggestions
 - [x] Detect repeated file reads and duplicated tool output ([#6](https://github.com/yingxiangge/agent-cost/issues/6))
-- [ ] Session context growth curve and budget threshold alerts ([#7](https://github.com/yingxiangge/agent-cost/issues/7))
-- [ ] Task-level efficiency metrics (useful code changes vs. tool overhead) ([#8](https://github.com/yingxiangge/agent-cost/issues/8))
+- [x] `agent-cost baseline` / `agent-cost diff`: did the change actually help?
+- [ ] Budget thresholds on top of a baseline, so a regression is an alert rather than
+  something you notice later ([#7](https://github.com/yingxiangge/agent-cost/issues/7))
+- [ ] Task-level efficiency metrics (useful code changes vs. tool overhead) —
+  needs design ([#8](https://github.com/yingxiangge/agent-cost/issues/8))
+
+### Help wanted
+
+Adding a session format is self-contained work with a clear test to write
+against, and it does not need the rest of the codebase in your head:
+
 - [ ] Support Cursor (`composer.json` / workspace state) log formats ([#2](https://github.com/yingxiangge/agent-cost/issues/2))
 - [ ] Support Cline / Roo Code conversation history formats ([#1](https://github.com/yingxiangge/agent-cost/issues/1))
 
