@@ -98,6 +98,17 @@ def format_analyze(stats: SessionStats, signals: dict) -> str:
                 f"({item['output_chars']:,} chars, {item['calls']} calls, {avg_str}{img_str}) "
                 f"[{item['category_label']}]"
             )
+    if signals.get("repeated_file_reads"):
+        lines.append("Repeated file reads:")
+        for item in signals["repeated_file_reads"][:6]:
+            lines.append(f"  {item['path']}  {item['reads']} reads")
+    if signals.get("repeated_tool_output"):
+        lines.append("Repeated tool output:")
+        for item in signals["repeated_tool_output"][:6]:
+            lines.append(
+                f"  {item['tool']:<18} {item['duplicate_calls']} duplicate calls, "
+                f"~{item['repeated_chars']:,} repeated chars"
+            )
     if signals.get("image_summary"):
         summary = signals["image_summary"]
         via = ", ".join(

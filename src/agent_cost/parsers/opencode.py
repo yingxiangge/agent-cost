@@ -232,7 +232,7 @@ def _process_opencode_event(
         )
         res = event.get("result") or event.get("output") or event.get("content") or ""
         chars = _chars(res)
-        stats.record_tool_output(t_name, chars)
+        stats.record_tool_output(t_name, chars, content=res)
     # Step or turn level tool calls
     elif etype in ("tool_call", "action", "tool-call") or "tool" in event or "toolCalls" in event or "tools" in event:
         # First key that is actually present wins -- an `or` chain would treat an
@@ -250,7 +250,7 @@ def _process_opencode_event(
                         tool_map[str(t_id)] = t_name
                     if last_tool is not None:
                         last_tool[0] = t_name
-                    stats.record_tool_call(t_name, _chars(t_name))
+                    stats.record_tool_call(t_name, _chars(t_name), t.get("input") or t.get("arguments"))
                 else:
                     t_name = str(t or "tool")
                     if last_tool is not None:
@@ -263,7 +263,7 @@ def _process_opencode_event(
                 tool_map[str(t_id)] = t_name
             if last_tool is not None:
                 last_tool[0] = t_name
-            stats.record_tool_call(t_name, _chars(t_name))
+            stats.record_tool_call(t_name, _chars(t_name), tool.get("input") or tool.get("arguments"))
         else:
             t_name = str(tool or "tool")
             if last_tool is not None:
@@ -293,7 +293,7 @@ def _process_opencode_event(
                         or (last_tool[0] if last_tool else "tool")
                     )
                     res = p.get("result") or p.get("output") or p.get("content") or ""
-                    stats.record_tool_output(t_name, _chars(res))
+                    stats.record_tool_output(t_name, _chars(res), content=res)
 
     if event.get("type") == "compaction":
         stats.compaction_events += 1

@@ -152,7 +152,7 @@ def _process_claude_event(
                         tool_map[str(tool_id)] = tool_name
                     if last_tool is not None:
                         last_tool[0] = tool_name
-                    stats.record_tool_call(tool_name, _chars(tool_name))
+                    stats.record_tool_call(tool_name, _chars(tool_name), block.get("input"))
                 elif btype == "tool_result":
                     tool_use_id = block.get("tool_use_id")
                     tool_name = (
@@ -162,7 +162,7 @@ def _process_claude_event(
                     )
                     res_text = block.get("content") or block.get("text") or ""
                     chars, images, image_tokens = _result_chars(res_text)
-                    stats.record_tool_output(tool_name, chars, images, image_tokens)
+                    stats.record_tool_output(tool_name, chars, images, image_tokens, res_text)
                 elif btype == "text":
                     text = block.get("text") or ""
                     stats.source_chars["assistant"] = stats.source_chars.get("assistant", 0) + _chars(text)
@@ -175,7 +175,7 @@ def _process_claude_event(
         )
         res_text = event.get("content") or event.get("text") or ""
         chars, images, image_tokens = _result_chars(res_text)
-        stats.record_tool_output(tool_name, chars, images, image_tokens)
+        stats.record_tool_output(tool_name, chars, images, image_tokens, res_text)
     elif isinstance(content, str):
         role = event.get("role") or event.get("type") or "user"
         stats.source_chars[role] = stats.source_chars.get(role, 0) + _chars(content)

@@ -175,6 +175,56 @@ def test_type_specific_recommendations():
     assert "concise structured findings" in rec_text_sub
 
 
+def test_analyze_reports_repeated_file_reads_and_exact_output_duplicates():
+    stats = SessionStats(agent="test-agent", session_key="repeated")
+    for _ in range(3):
+        stats.record_tool_call("view_file", input_value={"path": "src/main.py"})
+        stats.record_tool_output("view_file", 1200, content="same file contents")
+    stats.record_tool_call("bash", input_value={"command": "pytest -q"})
+    stats.record_tool_output("bash", 800, content="FAILED test_example\n")
+    stats.record_tool_call("bash", input_value={"command": "pytest -q"})
+    stats.record_tool_output("bash", 800, content="FAILED test_example\n")
+
+    signals = analyze(stats)
+
+    assert signals["repeated_file_reads"] == [{"path": "src/main.py", "reads": 3}]
+    assert signals["repeated_tool_output"] == [
+        {
+            "tool": "view_file",
+            "calls": 3,
+            "total_chars": 3600,
+            "unique_chars": 1200,
+            "repeated_chars": 2400,
+            "duplicate_calls": 2,
+        },
+        {
+            "tool": "bash",
+            "calls": 2,
+            "total_chars": 1600,
+            "unique_chars": 800,
+            "repeated_chars": 800,
+            "duplicate_calls": 1,
+        },
+    ]
+    rec_text = " ".join(signals["recommendations"])
+    assert "src/main.py" in rec_text
+    assert "Repeated output from 'view_file'" in rec_text
+
+
+def test_format_analyze_includes_repetition_breakdown():
+    stats = SessionStats(agent="test-agent", session_key="repeated")
+    stats.record_tool_call("view_file", input_value={"path": "README.md"})
+    stats.record_tool_call("view_file", input_value={"path": "README.md"})
+    stats.record_tool_output("view_file", 10, content="same")
+    stats.record_tool_output("view_file", 10, content="same")
+
+    text = format_analyze(stats, analyze(stats))
+
+    assert "Repeated file reads:" in text
+    assert "README.md  2 reads" in text
+    assert "Repeated tool output:" in text
+
+
 def test_opencode_parser_tool_attribution(tmp_path):
     log_file = tmp_path / "opencode_tools.json"
     data = {
