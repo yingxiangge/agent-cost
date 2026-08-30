@@ -203,11 +203,11 @@ is never priced as `gpt-5`.
 - [x] `agent-cost compare`: side-by-side agent comparison with `--by-agent` and `--json`
 - [x] Claude Code / Codex / Hermes / OpenCode session parsing
 - [x] Tool output attribution by call type & type-specific optimization suggestions
-- [ ] Detect repeated file reads and duplicated tool output
-- [ ] Session context growth curve and budget threshold alerts
-- [ ] Task-level efficiency metrics (useful code changes vs. tool overhead)
-- [ ] Support Cursor (`composer.json` / workspace state) log formats
-- [ ] Support Cline / Roo Code conversation history formats
+- [ ] Detect repeated file reads and duplicated tool output ([#6](https://github.com/yingxiangge/agent-cost/issues/6))
+- [ ] Session context growth curve and budget threshold alerts ([#7](https://github.com/yingxiangge/agent-cost/issues/7))
+- [ ] Task-level efficiency metrics (useful code changes vs. tool overhead) ([#8](https://github.com/yingxiangge/agent-cost/issues/8))
+- [ ] Support Cursor (`composer.json` / workspace state) log formats ([#2](https://github.com/yingxiangge/agent-cost/issues/2))
+- [ ] Support Cline / Roo Code conversation history formats ([#1](https://github.com/yingxiangge/agent-cost/issues/1))
 
 ## Contributing
 
