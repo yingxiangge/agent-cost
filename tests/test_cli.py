@@ -10,8 +10,15 @@ def test_cli_smoke(capsys):
     assert "claude-code" in out
     assert "Input" in out
 
-    # analyze
+    # analyze rolls up by default
     ret = main(["analyze", "examples/codex_rollout.sanitized.jsonl"])
+    assert ret == 0
+    out = capsys.readouterr().out
+    assert "sessions" in out
+    assert "Analysis:" not in out
+
+    # analyze --per-session keeps the per-session view
+    ret = main(["analyze", "--per-session", "examples/codex_rollout.sanitized.jsonl"])
     assert ret == 0
     out = capsys.readouterr().out
     assert "Analysis:" in out

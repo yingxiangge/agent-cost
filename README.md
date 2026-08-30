@@ -63,6 +63,42 @@ Requires Python 3.10+.
 
 ## Usage
 
+Run it with no arguments and it finds the agents installed on this machine
+(`~/.claude/projects`, `~/.codex/sessions`, `~/.local/share/opencode/opencode.db`)
+and rolls them all up into one screen:
+
+```bash
+agent-cost analyze
+```
+
+```text
+216 sessions · claude-code, codex, opencode · 35,170 turns
+──────────────────────────────
+Prompt tokens        8,412,964,990
+  cache read         8,167,485,671    97.1%
+  cache write           98,321,928
+  new                  147,157,391
+Output                  33,501,731
+Per turn        239,209 prompt -> 953 output  (251:1)
+Context growth  19,101 -> 172,630 tokens (x9.0, avg first vs last turn over 198 sessions)
+
+Where the context comes from
+  tool_output       77.9%
+  assistant         16.9%
+  user               3.3%
+
+Tools producing that output
+  Bash              73.9%  (9,722 calls)
+  Read              17.7%  (958 calls)
+
+Waste signals
+  repeated file reads    168 files across 42 sessions
+  duplicate tool output  97 outputs across 58 sessions
+```
+
+Every subcommand takes explicit paths too, and every one of them falls back to
+those same default locations when you give it none:
+
 ```bash
 # Compare usage, cache efficiency, and cost across multiple agents or sessions
 agent-cost compare ~/.claude/projects/ ~/.codex/sessions/ ./hermes/
@@ -73,8 +109,8 @@ agent-cost compare --json ~/.claude/projects/ ~/.codex/sessions/
 # Inspect one session (Claude Code, Hermes, OpenCode, Codex, or a folder)
 agent-cost inspect ~/.codex/sessions/2026/08/11/rollout-*.jsonl
 
-# Context growth and actionable recommendations
-agent-cost analyze ~/.codex/sessions/2026/08/11/
+# One analysis per session instead of the rollup
+agent-cost analyze --per-session ~/.codex/sessions/2026/08/11/
 
 # Aggregate totals across sessions
 agent-cost stats ~/.codex/sessions/2026/08/

@@ -8,10 +8,21 @@ from pathlib import Path
 
 from agent_cost.analyze import analyze
 from agent_cost.compare import compare_sessions
+from agent_cost.discover import describe_locations, discover_paths
 from agent_cost.models import SessionStats
 from agent_cost.parsers.detect import load_path
 from agent_cost.pricing import estimate_session_cost, validate_custom_pricing
-from agent_cost.report import format_analyze, format_compare, format_inspect, format_stats_table
+from agent_cost.report import (
+    format_analyze,
+    format_compare,
+    format_inspect,
+    format_stats_table,
+    format_summary,
+)
+from agent_cost.summary import summarize
+
+
+_PATHS_HELP = "Session files or directories (default: auto-detect installed agents)."
 
 
 def _pricing_override() -> dict | None:
@@ -29,7 +40,19 @@ def _parse_pricing_json(raw: str, source: str) -> dict:
     return validate_custom_pricing(parsed)
 
 
-def _load_all(paths: list[str]) -> list[SessionStats]:
+def _resolve_paths(paths: list[str]) -> tuple[list[str | Path], bool]:
+    """Use the paths given, or fall back to wherever the agents install.
+
+    Returns the paths and whether they were auto-detected, so the caller can
+    say which directories it read rather than reporting numbers from
+    locations the user never named.
+    """
+    if paths:
+        return list(paths), False
+    return list(discover_paths()), True
+
+
+def _load_all(paths: list[str | Path]) -> list[SessionStats]:
     stats: list[SessionStats] = []
     for path in paths:
         loaded = load_path(path)
@@ -78,19 +101,25 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_inspect = sub.add_parser("inspect", help="Show a single session's usage and cost.")
-    p_inspect.add_argument("paths", nargs="+", help="Session files or directories.")
+    p_inspect.add_argument("paths", nargs="*", help=_PATHS_HELP)
 
     p_analyze = sub.add_parser("analyze", help="Context growth and action recommendations.")
-    p_analyze.add_argument("paths", nargs="+", help="Session files or directories.")
+    p_analyze.add_argument("paths", nargs="*", help=_PATHS_HELP)
+    p_analyze.add_argument(
+        "--per-session",
+        action="store_true",
+        default=False,
+        help="Print one analysis per session instead of the rollup.",
+    )
     p_analyze.add_argument(
         "--json", action="store_true", default=False, help="Output analysis as JSON."
     )
 
     p_stats = sub.add_parser("stats", help="Aggregate totals across sessions.")
-    p_stats.add_argument("paths", nargs="+", help="Session files or directories.")
+    p_stats.add_argument("paths", nargs="*", help=_PATHS_HELP)
 
     p_compare = sub.add_parser("compare", help="Compare usage, cache efficiency, and cost across multiple agents.")
-    p_compare.add_argument("paths", nargs="+", help="Session files or directories to compare.")
+    p_compare.add_argument("paths", nargs="*", help=_PATHS_HELP)
     p_compare.add_argument("--by-agent", action="store_true", default=False, help="Group comparison strictly by agent.")
     p_compare.add_argument("--json", action="store_true", default=False, help="Output comparison result as JSON.")
 
@@ -104,7 +133,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
 
-    stats = _load_all(args.paths)
+    paths, auto_detected = _resolve_paths(args.paths)
+    if not paths:
+        print(
+            "No session paths given, and none of the default locations exist:\n"
+            + describe_locations(),
+            file=sys.stderr,
+        )
+        return 1
+    if auto_detected:
+        print(f"Reading {', '.join(str(p) for p in paths)}\n", file=sys.stderr)
+
+    stats = _load_all(paths)
     if not stats:
         print("No sessions found.", file=sys.stderr)
         return 1
@@ -115,19 +155,28 @@ def main(argv: list[str] | None = None) -> int:
             print(format_inspect(s))
             print()
     elif args.command == "analyze":
+        pairs = []
         for s in stats:
             _fill_cost(s, custom_pricing, args.subscription)
-            signals = analyze(s)
-            if args.json:
-                print(
-                    json.dumps(
-                        {"session": dataclasses.asdict(s), "analysis": signals},
-                        ensure_ascii=False,
+            pairs.append((s, analyze(s)))
+        if args.per_session:
+            for s, signals in pairs:
+                if args.json:
+                    print(
+                        json.dumps(
+                            {"session": dataclasses.asdict(s), "analysis": signals},
+                            ensure_ascii=False,
+                        )
                     )
-                )
+                else:
+                    print(format_analyze(s, signals))
+                print()
+        else:
+            summary = summarize(pairs)
+            if args.json:
+                print(json.dumps(summary, ensure_ascii=False))
             else:
-                print(format_analyze(s, signals))
-            print()
+                print(format_summary(summary))
     elif args.command == "stats":
         for s in stats:
             _fill_cost(s, custom_pricing, args.subscription)

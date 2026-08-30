@@ -5,6 +5,21 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Runs with no arguments.** Every subcommand now falls back to the locations
+  the agents install into (`~/.claude/projects`, `~/.codex/sessions`,
+  `~/.local/share/opencode/opencode.db`), so the first command after
+  `pip install` is `agent-cost analyze` rather than a path you have to go find.
+  When none of those exist, the error names the locations it looked in.
+- **`analyze` rolls sessions up by default.** Over a few dozen sessions the
+  per-session view scrolled past the answer; the rollup reports cache hit rate,
+  prompt-to-output ratio per turn, context growth from first to last turn,
+  where the context came from, which tools produced it, and how widespread the
+  repeated reads and duplicate outputs are. `--per-session` prints the old
+  per-session analyses, and `--json` follows whichever view is active.
+
 ## [0.4.0] - 2026-08-30
 
 ### Added

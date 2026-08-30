@@ -235,3 +235,69 @@ def format_compare(result: CompareResult, by_agent: bool = True) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+def format_summary(summary: dict) -> str:
+    """One screen for a whole machine: the rollup `analyze` prints by default."""
+    t = summary["totals"]
+    agents = ", ".join(t["agents"]) or "none"
+    lines = [
+        f"{_num(t['sessions'])} sessions · {agents} · {_num(t['turns'])} turns",
+        "──────────────────────────────",
+        f"Prompt tokens   {_num(t['prompt_tokens']):>18}",
+        f"  cache read    {_num(t['cache_read_tokens']):>18}   {t['cache_hit_rate'] * 100:>5.1f}%",
+        f"  cache write   {_num(t['cache_write_tokens']):>18}",
+        f"  new           {_num(t['input_tokens']):>18}",
+        f"Output          {_num(t['output_tokens']):>18}",
+    ]
+    if t["context_to_output_ratio"]:
+        lines.append(
+            f"Per turn        {_num(t['prompt_per_turn'])} prompt -> "
+            f"{_num(t['output_per_turn'])} output  ({t['context_to_output_ratio']:.0f}:1)"
+        )
+
+    g = summary.get("context_growth")
+    if g and g["growth_ratio"]:
+        lines.append(
+            f"Context growth  {_num(g['first_turn_avg'])} -> {_num(g['last_turn_avg'])} tokens "
+            f"(x{g['growth_ratio']}, avg first vs last turn over {g['sessions']} sessions)"
+        )
+
+    if summary["sources"]:
+        lines.append("")
+        lines.append("Where the context comes from")
+        for item in summary["sources"][:6]:
+            lines.append(f"  {item['source']:<16} {item['pct'] * 100:>5.1f}%")
+
+    tools = [item for item in summary["tools"] if item["output_chars"] > 0]
+    if tools:
+        lines.append("")
+        lines.append("Tools producing that output")
+        for item in tools[:5]:
+            lines.append(
+                f"  {item['tool']:<16} {item['pct'] * 100:>5.1f}%  "
+                f"({_num(item['calls'])} calls)"
+            )
+
+    w = summary["waste"]
+    waste_lines = []
+    if w["repeated_file_reads"]:
+        waste_lines.append(
+            f"  repeated file reads    {_num(w['repeated_file_reads'])} files "
+            f"across {w['repeated_file_read_sessions']} sessions"
+        )
+    if w["repeated_tool_outputs"]:
+        waste_lines.append(
+            f"  duplicate tool output  {_num(w['repeated_tool_outputs'])} outputs "
+            f"across {w['repeated_tool_output_sessions']} sessions"
+        )
+    if w["compaction_events"]:
+        waste_lines.append(f"  compactions            {_num(w['compaction_events'])}")
+    if waste_lines:
+        lines.append("")
+        lines.append("Waste signals")
+        lines.extend(waste_lines)
+
+    lines.append("")
+    lines.append("Run with --per-session for the per-session breakdown.")
+    return "\n".join(lines)
