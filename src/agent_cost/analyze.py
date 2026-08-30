@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from agent_cost.models import SessionStats
 
 _TOOL_CATEGORIES = {
@@ -103,6 +105,8 @@ def analyze(stats: SessionStats) -> dict:
         "tool_breakdown": [],
         "tool_categories": {},
         "image_summary": None,
+        "repeated_tool_output": [],
+        "repeated_file_reads": [],
     }
 
     samples = [s["estimated_prompt_tokens"] for s in stats.context_samples]
@@ -199,6 +203,62 @@ def analyze(stats: SessionStats) -> dict:
         signals["tool_breakdown"] = tool_breakdown
         signals["tool_categories"] = category_stats
 
+    repeated_outputs = []
+    for tool_name, fingerprints in stats.tool_output_fingerprints.items():
+        calls = sum(item["calls"] for item in fingerprints.values())
+        total_chars = sum(item["output_chars"] for item in fingerprints.values())
+        duplicate_chars = sum(
+            item["output_chars"] - (item["output_chars"] // item["calls"])
+            for item in fingerprints.values()
+            if item["calls"] > 1
+        )
+        duplicate_calls = sum(
+            item["calls"] - 1 for item in fingerprints.values() if item["calls"] > 1
+        )
+        if duplicate_calls:
+            repeated_outputs.append({
+                "tool": tool_name,
+                "calls": calls,
+                "total_chars": total_chars,
+                "unique_chars": total_chars - duplicate_chars,
+                "repeated_chars": duplicate_chars,
+                "duplicate_calls": duplicate_calls,
+            })
+    signals["repeated_tool_output"] = sorted(
+        repeated_outputs, key=lambda item: item["repeated_chars"], reverse=True
+    )
+
+    file_read_tools = {
+        "read",
+        "cat",
+        "view_file",
+        "read_file",
+        "fileread",
+        "readfile",
+        "open_file",
+    }
+    repeated_files = {}
+    for tool_name, inputs in stats.tool_call_inputs.items():
+        if tool_name.lower().replace("-", "_") not in file_read_tools:
+            continue
+        for raw in inputs:
+            try:
+                parsed = json.loads(raw)
+            except (TypeError, ValueError):
+                parsed = raw
+            if isinstance(parsed, dict):
+                path = parsed.get("path") or parsed.get("file") or parsed.get("file_path")
+            else:
+                path = parsed
+            if path:
+                key = str(path)
+                repeated_files[key] = repeated_files.get(key, 0) + 1
+    signals["repeated_file_reads"] = [
+        {"path": path, "reads": reads}
+        for path, reads in sorted(repeated_files.items(), key=lambda item: item[1], reverse=True)
+        if reads > 1
+    ]
+
     # 3. Tool-specific and type-specific optimization suggestions
     tool_output_dominates = bool(
         total_chars
@@ -230,6 +290,18 @@ def analyze(stats: SessionStats) -> dict:
                         cat_info["calls"],
                     )
                     signals["recommendations"].append(sug)
+
+    if signals["repeated_tool_output"]:
+        top = signals["repeated_tool_output"][0]
+        signals["recommendations"].append(
+            f"Repeated output from '{top['tool']}' accounts for {top['repeated_chars']:,} repeated characters; "
+            "filter or narrow the command output before sending it again."
+        )
+    if signals["repeated_file_reads"]:
+        top = signals["repeated_file_reads"][0]
+        signals["recommendations"].append(
+            f"'{top['path']}' was read {top['reads']} times; prefer targeted line ranges after the first read."
+        )
 
     # 4. Images ride on pixel dimensions, not character counts, so they are
     #    surfaced on their own rather than mixed into the tool output ranking.

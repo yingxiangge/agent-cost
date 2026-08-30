@@ -71,7 +71,7 @@ def parse_codex_rollout(path: str | Path) -> SessionStats:
                     if call_id:
                         call_id_map[str(call_id)] = name
                     last_tool_name = name
-                    stats.record_tool_call(name, _chars(name))
+                    stats.record_tool_call(name, _chars(name), payload.get("arguments") or payload.get("input"))
                 elif item_type in _TOOL_OUTPUT_TYPES:
                     call_id = payload.get("id") or payload.get("call_id")
                     name = (
@@ -82,7 +82,7 @@ def parse_codex_rollout(path: str | Path) -> SessionStats:
                     )
                     text = payload.get("output") or payload.get("result") or payload.get("text") or ""
                     chars = _chars(text)
-                    stats.record_tool_output(name, chars)
+                    stats.record_tool_output(name, chars, content=text)
                     cumulative_chars += chars
                 elif item_type == "message":
                     text = payload.get("text") or payload.get("content") or ""

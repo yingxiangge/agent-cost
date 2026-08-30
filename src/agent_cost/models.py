@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 
 
@@ -36,13 +38,21 @@ class SessionStats:
     # pixel dimensions, so folding its base64 payload into a character count
     # would swamp every text tool with a number that means nothing.
     tool_stats: dict[str, dict[str, int]] = field(default_factory=dict)
+    # Sanitized call arguments and output fingerprints used by analyze().
+    # Only arguments and hashes are retained; session contents are never stored.
+    tool_call_inputs: dict[str, list[str]] = field(default_factory=dict)
+    tool_output_fingerprints: dict[str, dict[str, dict[str, int]]] = field(
+        default_factory=dict
+    )
     # Tokens split by billing mode, keyed "<speed>|<inference_geo>". Fast mode and
     # US-pinned inference are priced differently and can change mid-session, so
     # the totals above are not enough to price a session correctly. Parsers that
     # cannot observe these modes leave this empty and are priced off the totals.
     billing_buckets: dict[str, dict[str, int]] = field(default_factory=dict)
 
-    def record_tool_call(self, tool_name: str, char_count: int = 0) -> None:
+    def record_tool_call(
+        self, tool_name: str, char_count: int = 0, input_value: object = None
+    ) -> None:
         """Record a tool invocation and optional request character footprint."""
         name = str(tool_name or "unknown")
         entry = self.tool_stats.setdefault(name, _new_tool_entry())
@@ -50,6 +60,14 @@ class SessionStats:
         self.tool_calls += 1
         if char_count > 0:
             self.source_chars["tool_calls"] = self.source_chars.get("tool_calls", 0) + char_count
+        if input_value is not None:
+            try:
+                encoded = json.dumps(
+                    input_value, sort_keys=True, ensure_ascii=False, default=str
+                )
+            except (TypeError, ValueError):
+                encoded = str(input_value)
+            self.tool_call_inputs.setdefault(name, []).append(encoded)
 
     def record_tool_output(
         self,
@@ -57,6 +75,7 @@ class SessionStats:
         output_chars: int,
         images: int = 0,
         image_tokens: int = 0,
+        content: object = None,
     ) -> None:
         """Record tool output attributed to a specific tool.
 
@@ -71,6 +90,20 @@ class SessionStats:
         entry["image_tokens"] = entry.get("image_tokens", 0) + image_tokens
         if output_chars:
             self.source_chars["tool_output"] = self.source_chars.get("tool_output", 0) + output_chars
+        if content is not None and output_chars > 0:
+            try:
+                serialized = json.dumps(
+                    content, sort_keys=True, ensure_ascii=False, default=str
+                )
+            except (TypeError, ValueError):
+                serialized = str(content)
+            digest = hashlib.sha256(
+                serialized.encode("utf-8", errors="replace")
+            ).hexdigest()
+            by_hash = self.tool_output_fingerprints.setdefault(name, {})
+            item = by_hash.setdefault(digest, {"calls": 0, "output_chars": 0})
+            item["calls"] += 1
+            item["output_chars"] += output_chars
 
     def add_usage(
         self,

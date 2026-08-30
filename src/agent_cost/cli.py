@@ -82,6 +82,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_analyze = sub.add_parser("analyze", help="Context growth and action recommendations.")
     p_analyze.add_argument("paths", nargs="+", help="Session files or directories.")
+    p_analyze.add_argument(
+        "--json", action="store_true", default=False, help="Output analysis as JSON."
+    )
 
     p_stats = sub.add_parser("stats", help="Aggregate totals across sessions.")
     p_stats.add_argument("paths", nargs="+", help="Session files or directories.")
@@ -115,7 +118,15 @@ def main(argv: list[str] | None = None) -> int:
         for s in stats:
             _fill_cost(s, custom_pricing, args.subscription)
             signals = analyze(s)
-            print(format_analyze(s, signals))
+            if args.json:
+                print(
+                    json.dumps(
+                        {"session": dataclasses.asdict(s), "analysis": signals},
+                        ensure_ascii=False,
+                    )
+                )
+            else:
+                print(format_analyze(s, signals))
             print()
     elif args.command == "stats":
         for s in stats:
