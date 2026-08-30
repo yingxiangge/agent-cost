@@ -36,3 +36,25 @@ def test_cli_smoke(capsys):
     data = json.loads(out)
     assert data["total_sessions"] >= 4
     assert "hermes" in data["agents"]
+
+
+def test_cli_pricing_validation_errors(capsys, monkeypatch):
+    ret = main([
+        "--pricing",
+        '{"bad-model": {"input": "1", "output": 2}}',
+        "inspect",
+        "examples/claude_session.sanitized.jsonl",
+    ])
+    assert ret == 2
+    assert "bad-model'.input" in capsys.readouterr().err
+
+    monkeypatch.setenv("AGENT_COST_PRICING", '{"bad-model": {"input": 1}}')
+    ret = main(["inspect", "examples/claude_session.sanitized.jsonl"])
+    assert ret == 2
+    assert "bad-model'.output" in capsys.readouterr().err
+
+
+def test_cli_rejects_pricing_json_null(capsys):
+    ret = main(["--pricing", "null", "inspect", "examples/claude_session.sanitized.jsonl"])
+    assert ret == 2
+    assert "custom pricing must be a JSON object" in capsys.readouterr().err

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Optional
 
+PRICE_FIELDS = frozenset({"input", "output", "cache_read", "cache_write"})
+REQUIRED_PRICE_FIELDS = frozenset({"input", "output"})
+
 # USD per 1M tokens. Snapshot as of 2026-08; prices change frequently.
 #
 # This table is deliberately incomplete. A model that is not listed here is
@@ -75,6 +78,39 @@ FAST_PRICING: dict[str, dict[str, float]] = {
 GEO_MULTIPLIER: dict[str, float] = {"us": 1.1}
 
 
+def validate_custom_pricing(custom_pricing: dict | None) -> dict | None:
+    if custom_pricing is None:
+        return None
+    if not isinstance(custom_pricing, dict):
+        raise ValueError("custom pricing must be a JSON object mapping model names to rate cards")
+
+    for model, rates in custom_pricing.items():
+        if isinstance(model, str) and model.startswith("_"):
+            continue
+        if not isinstance(model, str) or not model.strip():
+            raise ValueError("custom pricing model names must be non-empty strings")
+        if not isinstance(rates, dict):
+            raise ValueError(f"pricing entry {model!r} must be an object")
+
+        unknown = set(rates) - PRICE_FIELDS
+        if unknown:
+            key = sorted(unknown)[0]
+            raise ValueError(f"pricing entry {model!r}.{key} is not supported")
+
+        missing = REQUIRED_PRICE_FIELDS - set(rates)
+        if missing:
+            key = sorted(missing)[0]
+            raise ValueError(f"pricing entry {model!r}.{key} is required")
+
+        for key, value in rates.items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"pricing entry {model!r}.{key} must be a number")
+            if value < 0:
+                raise ValueError(f"pricing entry {model!r}.{key} must be non-negative")
+
+    return custom_pricing
+
+
 def resolve_pricing(model: str, custom_pricing: dict | None = None) -> Optional[dict[str, float]]:
     """Look up the rate card for `model`, or None when it is not known.
 
@@ -88,6 +124,7 @@ def resolve_pricing(model: str, custom_pricing: dict | None = None) -> Optional[
     4. No match returns None. There is no default rate card -- an unpriced
        session is reported as `unknown`, not silently priced as something else.
     """
+    custom_pricing = validate_custom_pricing(custom_pricing)
     prices = {**PRICING, **custom_pricing} if custom_pricing else PRICING
     key = (model or "").lower().split("/")[-1].strip()
     if not key:
