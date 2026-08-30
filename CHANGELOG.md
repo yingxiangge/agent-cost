@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Repeated tool output & file read detection.** `agent-cost analyze` now detects
+  files read multiple times across turns and exact duplicate command outputs via
+  SHA-256 output fingerprints without retaining raw transcript payloads. Added
+  type-specific mitigation suggestions and `agent-cost analyze --json` support (#9).
+
 ### Fixed
 - Custom pricing overrides now fail with a clear CLI error when a rate card has
-  missing, unknown, non-numeric, or negative values.
+  missing, unknown, non-numeric, or negative values (#5).
 
 ## [0.3.1] - 2026-08-28
 
