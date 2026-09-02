@@ -40,26 +40,52 @@ Hermes, Claude Code and OpenCode sessions.
 The figures above are one developer's machine, not a study, and they move as
 sessions accumulate — run it on your own and see what you get.
 
-## Install
+## ⚡ 3-Minute Quickstart
+
+No configuration required. Run it directly without installation via `pipx`:
+
+```bash
+# 1. Zero-install instant analysis (auto-detects local agent transcripts)
+pipx run agent-cost-tracker analyze
+
+# 2. Or install globally
+pip install agent-cost-tracker
+
+# 3. Compare all agents and sessions side-by-side
+agent-cost compare
+```
+
+### What `agent-cost` tells you immediately
+
+1. **Context Drag Ratio**: Are you dragging 250K tokens of history to generate 1K of code? (The 262:1 ratio problem).
+2. **Context Anatomy**: Is 90%+ of your context eaten by large tool/bash outputs rather than actual instructions?
+3. **Hidden Waste**: Exact list of files repeatedly read in the same session and duplicate tool outputs.
+
+---
+
+## Install & Agent Setup
 
 ```bash
 pip install agent-cost-tracker
 ```
 
-The distribution is named `agent-cost-tracker` because `agent-cost` is taken
-on PyPI; the command it installs is `agent-cost`.
+> **Note**: The package distribution is named `agent-cost-tracker` on PyPI; the binary command installed is `agent-cost`.
+
+### Zero-Config Auto Detection
+
+`agent-cost` automatically scans default session paths for installed agents on your system:
+
+| Agent / Tool | Default Monitored Path | What is Measured |
+| :--- | :--- | :--- |
+| **Claude Code** | `~/.claude/projects/**/*.jsonl` | Turn-by-turn input/output tokens, cache read/write, tool output breakdown |
+| **OpenCode** | `~/.local/share/opencode/opencode.db` | Turn-level tokens, SQLite cache stats (`cache.read`, `cache.write`), tool calls |
+| **Hermes** | `sessions.json` | Real input/output/cache totals + finalized costs |
+| **Codex** | `~/.codex/sessions/**/*.jsonl` | Turns, compactions, prompt growth curves, context sources |
 
 ```bash
-# Run it without installing
-pipx run --spec agent-cost-tracker agent-cost compare ~/.claude/projects/
-
-# Or from source
-git clone https://github.com/yingxiangge/agent-cost.git
-cd agent-cost
-pip install -e .
+# Analyze specific project or session directory
+agent-cost analyze ~/.claude/projects/my-repo/
 ```
-
-Requires Python 3.10+.
 
 ## Usage
 
