@@ -19,9 +19,9 @@ REQUIRED_PRICE_FIELDS = frozenset({"input", "output"})
 # merged over this table, so overriding one model leaves the rest intact.
 # See examples/pricing.example.json for a starting template.
 PRICING: dict[str, dict[str, float]] = {
-    # DeepSeek
-    "deepseek-chat": {"input": 0.27, "output": 1.10, "cache_read": 0.07, "cache_write": 0.27},
-    "deepseek-v3": {"input": 0.27, "output": 1.10, "cache_read": 0.07, "cache_write": 0.27},
+    # DeepSeek (updated 2026-09-10 price cut: off-peak $0.14/M input, $0.56/M output, $0.0028/M cache read)
+    "deepseek-chat": {"input": 0.14, "output": 0.56, "cache_read": 0.003, "cache_write": 0.14},
+    "deepseek-v3": {"input": 0.14, "output": 0.56, "cache_read": 0.003, "cache_write": 0.14},
     "deepseek-reasoner": {"input": 0.55, "output": 2.19, "cache_read": 0.14, "cache_write": 0.55},
     "deepseek-r1": {"input": 0.55, "output": 2.19, "cache_read": 0.14, "cache_write": 0.55},
 

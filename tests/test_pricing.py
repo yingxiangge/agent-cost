@@ -64,7 +64,7 @@ def test_custom_pricing_merges_instead_of_replacing():
     # Overriding one model must leave the built-in table intact.
     cost, status = estimate_cost(1_000_000, 0, 0, 0, "deepseek-chat", custom)
     assert status == "estimated"
-    assert cost == 0.27
+    assert cost == 0.14
 
 
 def test_custom_pricing_allows_comment_metadata():
