@@ -185,6 +185,35 @@ Budgets default to `warning:100k,critical:150k` and also read
 `AGENT_COST_BUDGET`. A spec that would set warning at or above critical is
 rejected rather than quietly ignored.
 
+### What a call actually costs
+
+A tool result is paid for more than once. It enters the prompt on the turn that
+asked for it, and **every later turn carries it again** — prompt caching
+discounts that repeat, it does not remove it. So the cost of a call is not its
+size, it is its size multiplied by how much session is left after it:
+
+```text
+Costliest calls (output x turns that carried it after, est. tokens)
+     3.1M   25,751 chars x  488 later turns  Read `notes/BUG_LOG.md`
+     2.9M   19,586 chars x  585 later turns  Read `notes/TODO.md`
+     2.7M   18,791 chars x  585 later turns  Read `notes/journal.md`
+     1.9M   14,128 chars x  541 later turns  Bash `grep -rn "..." --include="*.md" .`
+```
+
+Real output from one machine, paths shortened. **A single 25K-character file
+read on turn 21 was carried by 488 later turns — an estimated 3.1M tokens
+after the turn that needed it.**
+
+This changes what is worth fixing. Ranked by size, tool output looks flat:
+across 12,345 real calls the median is 386 characters, and calls over 10K
+characters are 0.55% of them and 9.4% of the output. Ranked by carried cost,
+the top 1% of calls account for 20% of it — and a 4K-character command on turn
+15 outranks a 20K one on turn 400.
+
+The practical rule it implies is not "avoid big output". It is **narrow the
+call early**: the same `sed -n '1,80p'` instead of a full read is worth fifty
+times more on turn 10 than on turn 500.
+
 ### Did your change actually help?
 
 Measuring once tells you where the context went. It cannot tell you whether the
@@ -349,8 +378,11 @@ is never priced as `gpt-5`.
 - [x] Detect repeated file reads and duplicated tool output ([#6](https://github.com/yingxiangge/agent-cost/issues/6))
 - [x] `agent-cost baseline` / `agent-cost diff`: did the change actually help?
 - [x] Budget thresholds, and the tool call behind the worst turn ([#7](https://github.com/yingxiangge/agent-cost/issues/7))
-- [ ] Warn while the session is running, not after it: the same rules as a
-  `PostToolUse` hook, so a 40K-token command is flagged when it happens
+- [x] Carried cost: rank calls by output size x turns that carried it after
+- [ ] Warn while the session is running, not after it — as a `PostToolUse`
+  hook. Gated on carried cost, not output size: measurement says size alone
+  flags the wrong 9.4% and would need an exception every time a full read was
+  the right call
 - [ ] Task-level efficiency metrics (useful code changes vs. tool overhead) —
   needs design ([#8](https://github.com/yingxiangge/agent-cost/issues/8))
 

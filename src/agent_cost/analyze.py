@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from agent_cost.carried import carried_cost
 from agent_cost.models import SessionStats
 
 _TOOL_CATEGORIES = {
@@ -231,6 +232,7 @@ def analyze(stats: SessionStats, budget: dict | None = None) -> dict:
         "image_summary": None,
         "repeated_tool_output": [],
         "repeated_file_reads": [],
+        "carried_cost": None,
     }
 
     samples = [s["estimated_prompt_tokens"] for s in stats.context_samples]
@@ -276,6 +278,19 @@ def analyze(stats: SessionStats, budget: dict | None = None) -> dict:
             signals["recommendations"].append(
                 f"Context crossed the warning budget ({tracked['warning']:,} tokens) at turn "
                 f"{tracked['warning_turn']}.{jump_note}"
+            )
+
+    carried = carried_cost(stats)
+    signals["carried_cost"] = carried
+    if carried and carried["calls"]:
+        worst = carried["calls"][0]
+        label = f"{worst['tool']} `{worst['detail']}`" if worst["detail"] else worst["tool"]
+        if worst["turns_after"] >= 1:
+            signals["recommendations"].append(
+                f"{label} on turn {worst['turn']} produced {worst['output_chars']:,} characters "
+                f"that {worst['turns_after']} later turns each carried again "
+                f"(~{worst['carried_tokens']:,} tokens beyond the turn that needed it). "
+                "Narrowing a call is worth most early in a session, when the most turns are left to carry it."
             )
 
     if stats.compaction_events:

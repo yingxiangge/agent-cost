@@ -5,6 +5,28 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-09-10
+
+### Added
+- **Carried cost: what a tool call costs after the turn that needed it.**
+  A tool result enters the prompt once and every later turn carries it again;
+  caching discounts the repeat rather than removing it. Calls are now ranked by
+  `output_chars // 4 * turns_after` and both factors are printed, because the
+  product is the point: on one real session a 25,751-character file read on
+  turn 21 was carried by 488 later turns, an estimated 3.1M tokens beyond the
+  turn that asked for it. Shown per session and in the default rollup, with the
+  share of total carried cost the listed calls represent.
+
+  This is a different ranking from output size, and measurement says size is
+  the wrong one: across 12,345 real calls the median output is 386 characters,
+  calls above 10K characters are 0.55% of calls and 9.4% of output, and exact
+  duplicate output is 1.06%. Ranked by carried cost the top 1% of calls hold
+  20% of it, and a 4K-character command early outranks a 20K one late. The
+  actionable rule is to narrow calls early, not to avoid large output.
+
+  Sessions without per-turn attribution (Codex, OpenCode, Hermes, and samples
+  recorded before 0.6.0) report nothing here rather than a guess.
+
 ## [0.6.0] - 2026-09-10
 
 ### Fixed
@@ -261,7 +283,8 @@ First public release.
 - Read-only guarantee: session files are opened and counted, never executed,
   modified, or transmitted (see `SECURITY.md`).
 
-[Unreleased]: https://github.com/yingxiangge/agent-cost/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/yingxiangge/agent-cost/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/yingxiangge/agent-cost/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/yingxiangge/agent-cost/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/yingxiangge/agent-cost/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/yingxiangge/agent-cost/compare/v0.3.1...v0.4.0

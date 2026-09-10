@@ -87,9 +87,29 @@ def summarize(pairs: list[tuple[SessionStats, dict]]) -> dict:
     repeated_reads = sum(len(sig["repeated_file_reads"]) for _, sig in pairs)
     repeated_outputs = sum(len(sig["repeated_tool_output"]) for _, sig in pairs)
 
+    # Carried cost across every session. Each session contributed its own
+    # ranked calls, and rank is monotonic in carried tokens, so the global
+    # leaders are necessarily among the per-session leaders already computed.
+    carried_total = 0
+    carried_calls: list[dict] = []
+    for stats, sig in pairs:
+        entry = sig.get("carried_cost")
+        if not entry:
+            continue
+        carried_total += entry["total_carried_tokens"]
+        for call in entry["calls"]:
+            carried_calls.append({**call, "session": stats.session_key})
+    carried_calls.sort(key=lambda call: call["carried_tokens"], reverse=True)
+    carried = (
+        {"total_carried_tokens": carried_total, "calls": carried_calls[:5]}
+        if carried_calls
+        else None
+    )
+
     return {
         "totals": totals,
         "context_growth": growth,
+        "carried_cost": carried,
         "sources": _ranked(sources, source_total),
         "tools": [
             {

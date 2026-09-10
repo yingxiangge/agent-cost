@@ -73,6 +73,33 @@ def format_inspect(stats: SessionStats, cost_override: float | None = None) -> s
     return "\n".join(lines)
 
 
+def _format_carried_block(carried: dict | None) -> list[str]:
+    """List the calls whose output the rest of the session kept paying for.
+
+    Both factors are printed, not just the product: a reader needs to see that
+    a modest output early outranks a large one late, which is the whole point
+    of the ranking.
+    """
+    if not carried or not carried["calls"]:
+        return []
+
+    lines = [
+        "Carried cost (output x turns that carried it after, estimated tokens)",
+    ]
+    for call in carried["calls"]:
+        label = f"{call['tool']} `{call['detail']}`" if call["detail"] else call["tool"]
+        lines.append(
+            f"  {_fmt_tokens(call['carried_tokens']):>7}  "
+            f"turn {call['turn']:>4}  "
+            f"{call['output_chars']:>7,} chars x {call['turns_after']:>4} later turns  {label}"
+        )
+    lines.append(
+        f"  those {len(carried['calls'])} of {carried['call_count']:,} calls are "
+        f"{carried['top_share'] * 100:.0f}% of the session's carried cost"
+    )
+    return lines
+
+
 def _fmt_tokens(n: int) -> str:
     """Render a token count compactly: 168000 -> 168K."""
     if n >= 1_000_000:
@@ -186,6 +213,7 @@ def format_analyze(stats: SessionStats, signals: dict) -> str:
     if stats.compaction_events:
         lines.append(f"Compactions: {stats.compaction_events}")
     lines.extend(_format_budget_block(signals.get("context_budget")))
+    lines.extend(_format_carried_block(signals.get("carried_cost")))
     if signals.get("recommendations"):
         lines.append("")
         lines.append("Recommendations:")
@@ -357,6 +385,17 @@ def format_summary(summary: dict) -> str:
         lines.append("")
         lines.append("Waste signals")
         lines.extend(waste_lines)
+
+    carried = summary.get("carried_cost")
+    if carried and carried["calls"]:
+        lines.append("")
+        lines.append("Costliest calls (output x turns that carried it after, est. tokens)")
+        for call in carried["calls"]:
+            label = f"{call['tool']} `{call['detail']}`" if call["detail"] else call["tool"]
+            lines.append(
+                f"  {_fmt_tokens(call['carried_tokens']):>7}  "
+                f"{call['output_chars']:>7,} chars x {call['turns_after']:>4} later turns  {label}"
+            )
 
     lines.append("")
     lines.append("Run with --per-session for the per-session breakdown.")
