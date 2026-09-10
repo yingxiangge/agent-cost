@@ -31,6 +31,6 @@ def parse_hermes_sessions(path: str | Path) -> list[SessionStats]:
         )
         last_prompt = int(rec.get("last_prompt_tokens") or 0)
         if last_prompt:
-            s.context_samples.append({"turn": 1, "estimated_prompt_tokens": last_prompt})
+            s.sample_context(last_prompt, turn=1)
         stats.append(s)
     return stats

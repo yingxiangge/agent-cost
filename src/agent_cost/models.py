@@ -49,6 +49,11 @@ class SessionStats:
     # the totals above are not enough to price a session correctly. Parsers that
     # cannot observe these modes leave this empty and are priced off the totals.
     billing_buckets: dict[str, dict[str, int]] = field(default_factory=dict)
+    # Tool output seen since the last context sample, waiting to be attributed
+    # to the turn whose prompt it inflates. A tool result lands in the
+    # transcript *before* the usage figure that carries it, so the buffer is
+    # drained by `sample_context()` rather than filled by it.
+    pending_tool_output: list[dict] = field(default_factory=list)
 
     def record_tool_call(
         self, tool_name: str, char_count: int = 0, input_value: object = None
@@ -76,18 +81,31 @@ class SessionStats:
         images: int = 0,
         image_tokens: int = 0,
         content: object = None,
+        detail: str = "",
     ) -> None:
         """Record tool output attributed to a specific tool.
 
         `output_chars` counts textual payload only. Images are recorded as a
         count plus their estimated token footprint and deliberately kept out of
         both `output_chars` and `source_chars`, which are character pools.
+
+        `detail` is a short, already-sanitized label for the call that produced
+        this output (a command line, a file path) used to name the culprit
+        behind a context jump. Parsers that cannot supply one leave it empty
+        and the turn is reported without attribution.
         """
         name = str(tool_name or "unknown")
         entry = self.tool_stats.setdefault(name, _new_tool_entry())
         entry["output_chars"] = entry.get("output_chars", 0) + output_chars
         entry["images"] = entry.get("images", 0) + images
         entry["image_tokens"] = entry.get("image_tokens", 0) + image_tokens
+        if output_chars or image_tokens:
+            self.pending_tool_output.append({
+                "tool": name,
+                "detail": str(detail or ""),
+                "output_chars": output_chars,
+                "image_tokens": image_tokens,
+            })
         if output_chars:
             self.source_chars["tool_output"] = self.source_chars.get("tool_output", 0) + output_chars
         if content is not None and output_chars > 0:
@@ -128,6 +146,39 @@ class SessionStats:
         bucket["output"] += output_tokens
         bucket["cache_read"] += cache_read
         bucket["cache_write"] += cache_write
+
+    def sample_context(self, prompt_tokens: int, turn: int | None = None) -> dict:
+        """Record this turn's prompt size and attribute its growth to tools.
+
+        `delta` is this turn's prompt minus the previous sample's, so the first
+        sample reports the whole prompt (session preamble, not tool growth) and
+        a compaction shows up as a negative delta. Callers looking for the
+        worst tool-driven jump skip the first sample for that reason.
+
+        The pending buffer holds every tool result recorded since the previous
+        sample -- exactly the payload this turn's prompt had to carry -- and is
+        drained here so each result is attributed to one turn only. Entries are
+        ordered largest-first so the culprit is `tools[0]`.
+        """
+        previous = (
+            self.context_samples[-1]["estimated_prompt_tokens"]
+            if self.context_samples
+            else 0
+        )
+        tools = sorted(
+            self.pending_tool_output,
+            key=lambda item: (item["output_chars"], item["image_tokens"]),
+            reverse=True,
+        )
+        self.pending_tool_output = []
+        sample = {
+            "turn": self.turns if turn is None else turn,
+            "estimated_prompt_tokens": prompt_tokens,
+            "delta": prompt_tokens - previous,
+            "tools": tools,
+        }
+        self.context_samples.append(sample)
+        return sample
 
     @property
     def image_count(self) -> int:

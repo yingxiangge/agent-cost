@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from agent_cost.analyze import NO_TOOL_CULPRIT
 from agent_cost.compare import CompareResult
 from agent_cost.models import SessionStats
 
@@ -72,6 +73,70 @@ def format_inspect(stats: SessionStats, cost_override: float | None = None) -> s
     return "\n".join(lines)
 
 
+def _fmt_tokens(n: int) -> str:
+    """Render a token count compactly: 168000 -> 168K."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n // 1000}K"
+    return str(n)
+
+
+def _budget_rows(tracked: dict) -> list[dict]:
+    """Pick the turns worth printing: the ends, the crossings, the worst jump.
+
+    A long session has hundreds of samples and printing them all buries the
+    four that carry the story, so the curve is sampled rather than dumped.
+    """
+    curve = tracked["curve"]
+    wanted = {curve[0]["turn"], curve[-1]["turn"]}
+    for key in ("warning_turn", "critical_turn"):
+        if tracked[key] is not None:
+            wanted.add(tracked[key])
+    if tracked["biggest_jump"]:
+        wanted.add(tracked["biggest_jump"]["turn"])
+    return [entry for entry in curve if entry["turn"] in wanted]
+
+
+def _format_budget_block(tracked: dict | None) -> list[str]:
+    """Render the prompt curve against its budget, naming what inflated it."""
+    if not tracked or not tracked["curve"]:
+        return []
+
+    jump_turn = tracked["biggest_jump"]["turn"] if tracked["biggest_jump"] else None
+    rows = _budget_rows(tracked)
+    lines = [
+        f"Context budget: warning {_fmt_tokens(tracked['warning'])} | "
+        f"critical {_fmt_tokens(tracked['critical'])}"
+    ]
+    previous_turn = None
+    for entry in rows:
+        if previous_turn is not None and entry["turn"] not in (previous_turn, previous_turn + 1):
+            lines.append("  ...")
+        previous_turn = entry["turn"]
+
+        delta = entry["delta"]
+        delta_text = f"{delta:+,}" if delta is not None else ""
+        marks = []
+        if entry["level"] != "ok":
+            marks.append(f"[{entry['level']}]")
+        if entry["turn"] == jump_turn:
+            culprit = tracked["biggest_jump"]["culprit"]
+            if culprit == NO_TOOL_CULPRIT:
+                marks.append(f"biggest jump, {culprit}")
+            elif culprit:
+                marks.append(f"biggest jump by {culprit}")
+            else:
+                marks.append("biggest jump")
+        suffix = f"  {' '.join(marks)}" if marks else ""
+        lines.append(
+            f"  turn {entry['turn']:>4}  "
+            f"{_fmt_tokens(entry['estimated_prompt_tokens']):>7}  "
+            f"{delta_text:>9}{suffix}"
+        )
+    return lines
+
+
 def format_analyze(stats: SessionStats, signals: dict) -> str:
     lines = [f"Analysis: {stats.session_key}", "──────────────────────────────"]
     if signals.get("context_growth"):
@@ -120,12 +185,7 @@ def format_analyze(stats: SessionStats, signals: dict) -> str:
         )
     if stats.compaction_events:
         lines.append(f"Compactions: {stats.compaction_events}")
-    if stats.context_samples:
-        def fmt_tok(n: int) -> str:
-            return f"{n // 1000}K" if n >= 1000 else str(n)
-
-        curve = " -> ".join(fmt_tok(s["estimated_prompt_tokens"]) for s in stats.context_samples[-6:])
-        lines.append(f"Prompt curve: {curve}")
+    lines.extend(_format_budget_block(signals.get("context_budget")))
     if signals.get("recommendations"):
         lines.append("")
         lines.append("Recommendations:")

@@ -96,11 +96,135 @@ def _format_type_suggestion(cat_key: str, tool_desc: str, pct: float, chars: int
         )
 
 
-def analyze(stats: SessionStats) -> dict:
+# Defaults chosen to fire before the prompt curve is unrecoverable, not at the
+# model's context limit: by the time a session is at its ceiling, the expensive
+# turns have already been paid for.
+DEFAULT_BUDGET = {"warning": 100_000, "critical": 150_000}
+
+
+def parse_budget(raw: str) -> dict:
+    """Parse a `warning:100k,critical:150k` budget spec into token counts.
+
+    Either key may be omitted and keeps its default. Raises ValueError with a
+    usable message rather than falling back to defaults silently -- a budget
+    the user thought they set but did not is worse than no budget.
+    """
+    budget = dict(DEFAULT_BUDGET)
+    for part in str(raw or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        key, _, value = part.partition(":")
+        key = key.strip().lower()
+        if key not in budget:
+            raise ValueError(
+                f"unknown budget key {key!r}; expected 'warning' or 'critical'"
+            )
+        text = value.strip().lower().replace("_", "")
+        multiplier = 1
+        if text.endswith("k"):
+            multiplier, text = 1_000, text[:-1]
+        elif text.endswith("m"):
+            multiplier, text = 1_000_000, text[:-1]
+        try:
+            amount = float(text)
+        except ValueError:
+            raise ValueError(f"budget {key!r} is not a number: {value.strip()!r}") from None
+        if amount <= 0:
+            raise ValueError(f"budget {key!r} must be positive")
+        budget[key] = int(amount * multiplier)
+    if budget["warning"] >= budget["critical"]:
+        raise ValueError(
+            f"warning ({budget['warning']:,}) must be below critical ({budget['critical']:,})"
+        )
+    return budget
+
+
+# Said when a jump has no tool output behind it: the prompt still grew, so the
+# turn needs an explanation, and "we could not attribute this" is one. On this
+# codebase's own transcripts these turns are per-turn injected context and long
+# user messages -- real growth that naming no culprit would hide.
+NO_TOOL_CULPRIT = "no tool output this turn"
+
+
+def _describe_culprit(tools: list[dict]) -> str:
+    """Name the tool call that carried the most output into a turn."""
+    if not tools:
+        return NO_TOOL_CULPRIT
+    top = tools[0]
+    name = top.get("tool") or "tool"
+    detail = top.get("detail") or ""
+    return f"{name} `{detail}`" if detail else str(name)
+
+
+def context_budget(stats: SessionStats, budget: dict | None = None) -> dict | None:
+    """Track the prompt curve against warning / critical budgets.
+
+    Returns None when there is no curve to track. The first sample is excluded
+    from the jump search: its delta is the whole session preamble, which no
+    tool call caused and no user action can shrink.
+    """
+    samples = stats.context_samples
+    if not samples:
+        return None
+
+    limits = dict(DEFAULT_BUDGET) if budget is None else dict(budget)
+    warning, critical = limits["warning"], limits["critical"]
+
+    curve = []
+    warning_turn = critical_turn = None
+    for sample in samples:
+        tokens = int(sample.get("estimated_prompt_tokens") or 0)
+        level = "ok"
+        if tokens >= critical:
+            level = "critical"
+            if critical_turn is None:
+                critical_turn = sample.get("turn")
+        elif tokens >= warning:
+            level = "warning"
+            if warning_turn is None:
+                warning_turn = sample.get("turn")
+        curve.append({
+            "turn": sample.get("turn"),
+            "estimated_prompt_tokens": tokens,
+            # Samples written before this field existed carry no delta; treat
+            # them as unattributed rather than inventing a jump of zero.
+            "delta": sample.get("delta"),
+            "level": level,
+            "tools": sample.get("tools") or [],
+        })
+
+    biggest_jump = None
+    for entry in curve[1:]:
+        delta = entry["delta"]
+        if delta is None or delta <= 0:
+            continue
+        if biggest_jump is None or delta > biggest_jump["delta"]:
+            biggest_jump = {
+                "turn": entry["turn"],
+                "delta": delta,
+                "tools": entry["tools"],
+                "culprit": _describe_culprit(entry["tools"]),
+            }
+
+    return {
+        "warning": warning,
+        "critical": critical,
+        "warning_turn": warning_turn,
+        "critical_turn": critical_turn,
+        "peak_prompt_tokens": max((e["estimated_prompt_tokens"] for e in curve), default=0),
+        "final_prompt_tokens": curve[-1]["estimated_prompt_tokens"],
+        "biggest_jump": biggest_jump,
+        "curve": curve,
+    }
+
+
+def analyze(stats: SessionStats, budget: dict | None = None) -> dict:
     """Derive actionable signals from session statistics."""
     signals: dict = {
         "recommendations": [],
         "context_growth": None,
+        "context_budget": None,
         "largest_sources": [],
         "tool_breakdown": [],
         "tool_categories": {},
@@ -129,6 +253,31 @@ def analyze(stats: SessionStats) -> dict:
                 "Context is growing steadily; budget a /compact or a new session soon."
             )
 
+    tracked = context_budget(stats, budget)
+    signals["context_budget"] = tracked
+    if tracked:
+        jump = tracked["biggest_jump"]
+        culprit = ""
+        if jump and jump["culprit"]:
+            joiner = "," if jump["culprit"] == NO_TOOL_CULPRIT else " by"
+            culprit = f"{joiner} {jump['culprit']}"
+        jump_note = (
+            f" The biggest single-turn jump was +{jump['delta']:,} tokens at turn {jump['turn']}{culprit}."
+            if jump
+            else ""
+        )
+        if tracked["critical_turn"] is not None:
+            signals["recommendations"].append(
+                f"Context crossed the critical budget ({tracked['critical']:,} tokens) at turn "
+                f"{tracked['critical_turn']}, peaking at {tracked['peak_prompt_tokens']:,}."
+                f"{jump_note} Compact the session or start a fresh one."
+            )
+        elif tracked["warning_turn"] is not None:
+            signals["recommendations"].append(
+                f"Context crossed the warning budget ({tracked['warning']:,} tokens) at turn "
+                f"{tracked['warning_turn']}.{jump_note}"
+            )
+
     if stats.compaction_events:
         signals["recommendations"].append(
             f"Session was already compacted {stats.compaction_events}x; further work belongs in a new session."
@@ -144,11 +293,14 @@ def analyze(stats: SessionStats) -> dict:
         )
 
     # 1. Source breakdown
-    total_chars = sum(stats.source_chars.values())
-    if total_chars:
+    source_total_chars = sum(stats.source_chars.values())
+    # Defined unconditionally: step 3 reads it, and a session can carry tool
+    # fingerprints while `source_chars` is still empty.
+    ranked: list[tuple[str, int]] = []
+    if source_total_chars:
         ranked = sorted(stats.source_chars.items(), key=lambda kv: kv[1], reverse=True)[:4]
         signals["largest_sources"] = [
-            {"source": k, "percent": round(v * 100 / total_chars, 1)} for k, v in ranked
+            {"source": k, "percent": round(v * 100 / source_total_chars, 1)} for k, v in ranked
         ]
 
     # 2. Tool output breakdown by tool and call type / category
@@ -206,7 +358,7 @@ def analyze(stats: SessionStats) -> dict:
     repeated_outputs = []
     for tool_name, fingerprints in stats.tool_output_fingerprints.items():
         calls = sum(item["calls"] for item in fingerprints.values())
-        total_chars = sum(item["output_chars"] for item in fingerprints.values())
+        fingerprint_chars = sum(item["output_chars"] for item in fingerprints.values())
         duplicate_chars = sum(
             item["output_chars"] - (item["output_chars"] // item["calls"])
             for item in fingerprints.values()
@@ -219,8 +371,8 @@ def analyze(stats: SessionStats) -> dict:
             repeated_outputs.append({
                 "tool": tool_name,
                 "calls": calls,
-                "total_chars": total_chars,
-                "unique_chars": total_chars - duplicate_chars,
+                "total_chars": fingerprint_chars,
+                "unique_chars": fingerprint_chars - duplicate_chars,
                 "repeated_chars": duplicate_chars,
                 "duplicate_calls": duplicate_calls,
             })
@@ -261,7 +413,7 @@ def analyze(stats: SessionStats) -> dict:
 
     # 3. Tool-specific and type-specific optimization suggestions
     tool_output_dominates = bool(
-        total_chars
+        source_total_chars
         and any(k == "tool_output" for k, _ in ranked[:2])
     )
 

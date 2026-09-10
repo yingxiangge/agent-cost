@@ -56,9 +56,7 @@ def parse_codex_rollout(path: str | Path) -> SessionStats:
             elif etype == "turn_context":
                 turn_idx += 1
                 stats.turns = turn_idx
-                stats.context_samples.append(
-                    {"turn": turn_idx, "estimated_prompt_tokens": max(1, cumulative_chars // 4)}
-                )
+                stats.sample_context(max(1, cumulative_chars // 4), turn=turn_idx)
 
             elif etype == "compacted":
                 stats.compaction_events += 1

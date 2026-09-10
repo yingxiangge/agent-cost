@@ -5,6 +5,53 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-09-10
+
+### Fixed
+- **Claude Code token and turn counts were roughly 2x too high.** Claude Code
+  writes one assistant message as several transcript lines — one per content
+  block (thinking, text, each tool_use) — and repeats the *entire* usage object
+  on every one of them. Every line was counted, so a four-block message billed
+  four times. Across 97 real sessions on one machine this reported 8.38B tokens
+  and 28,103 turns where the truth was 3.95B and 12,946: an inflation of 2.12x
+  on tokens and 2.17x on turns, carried straight into cost estimates. Usage is
+  now counted once per `message.id`. Tool and character statistics were never
+  affected — the content blocks genuinely differ per line — and ratios such as
+  context-to-output are near-unchanged, because numerator and denominator were
+  inflated together. Baselines saved before this release report inflated
+  session and turn totals; the rates they store are off by only ~2.4% and
+  remain usable.
+- **An aborted turn planted a zero in the prompt curve.** A record whose usage
+  is entirely zero is a placeholder, not spend and not a turn, but it was
+  sampled as a 0-token prompt — which made the next turn read as a jump of the
+  entire context. On one real session that showed as +635,888 tokens where the
+  actual growth was +15,334. Such records are now skipped.
+- **`analyze()` crashed on sessions with tool output but no source breakdown.**
+  A loop variable shadowed the session-wide character total, and the ranking it
+  fed was left undefined when `source_chars` was empty, raising
+  `UnboundLocalError`. The shadowing also meant "does tool output dominate this
+  context" was decided from one tool's byte count rather than the session's.
+
+### Added
+- **`analyze --budget warning:100k,critical:150k`: which turn blew up the
+  context, and what did it.** Reports the first turn to cross each threshold,
+  the largest single-turn jump, and the tool call behind that jump by name and
+  argument — `Read \`notes/BUG_LOG.md\``, not just `Read`. Turn 1 is excluded
+  from the jump search: its delta is the session preamble, which no tool caused.
+  Only the turns that carry the story are printed. Budgets also read
+  `AGENT_COST_BUDGET`; a spec placing warning at or above critical is rejected
+  rather than silently ignored.
+- **Per-turn attribution in `SessionStats`.** `context_samples` entries now
+  carry `delta` and the `tools` whose output the turn had to carry. A tool
+  result appears in the transcript before the usage figure that includes it, so
+  results are buffered and attributed to the following sample, each exactly
+  once. Parsers that cannot see per-call arguments (Codex, OpenCode, Hermes)
+  report the delta without a culprit rather than guessing; all four now record
+  samples through one `sample_context()` entry point.
+- A turn that grew with no tool output behind it is labelled as such instead of
+  being left blank — injected per-turn context and long pasted messages are
+  real growth worth naming.
+
 ## [0.5.0] - 2026-08-30
 
 ### Added
@@ -214,7 +261,8 @@ First public release.
 - Read-only guarantee: session files are opened and counted, never executed,
   modified, or transmitted (see `SECURITY.md`).
 
-[Unreleased]: https://github.com/yingxiangge/agent-cost/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/yingxiangge/agent-cost/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/yingxiangge/agent-cost/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/yingxiangge/agent-cost/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/yingxiangge/agent-cost/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/yingxiangge/agent-cost/compare/v0.3.0...v0.3.1

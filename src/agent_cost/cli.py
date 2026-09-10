@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from agent_cost.analyze import analyze
+from agent_cost.analyze import DEFAULT_BUDGET, analyze, parse_budget
 from agent_cost.baseline import (
     diff_summaries,
     list_baselines,
@@ -36,6 +36,23 @@ _PATHS_HELP = "Session files or directories (default: auto-detect installed agen
 def _pricing_override() -> dict | None:
     env = __import__("os").environ.get("AGENT_COST_PRICING")
     return _parse_pricing_json(env, "AGENT_COST_PRICING") if env else None
+
+
+def _budget_override(flag: str | None) -> dict | None:
+    """Resolve the prompt budget: flag first, then environment, else default.
+
+    Returns None when neither is set so `analyze()` applies its own default,
+    rather than freezing today's default into every call site.
+    """
+    if flag:
+        return parse_budget(flag)
+    env = __import__("os").environ.get("AGENT_COST_BUDGET")
+    if env:
+        try:
+            return parse_budget(env)
+        except ValueError as exc:
+            raise ValueError(f"invalid AGENT_COST_BUDGET: {exc}") from None
+    return None
 
 
 def _parse_pricing_json(raw: str, source: str) -> dict:
@@ -122,6 +139,15 @@ def main(argv: list[str] | None = None) -> int:
     p_analyze.add_argument(
         "--json", action="store_true", default=False, help="Output analysis as JSON."
     )
+    p_analyze.add_argument(
+        "--budget",
+        default=None,
+        metavar="SPEC",
+        help="Prompt-size budget, e.g. 'warning:100k,critical:150k'. "
+             f"Defaults to warning:{DEFAULT_BUDGET['warning'] // 1000}k,"
+             f"critical:{DEFAULT_BUDGET['critical'] // 1000}k, "
+             "or the AGENT_COST_BUDGET environment variable.",
+    )
 
     p_stats = sub.add_parser("stats", help="Aggregate totals across sessions.")
     p_stats.add_argument("paths", nargs="*", help=_PATHS_HELP)
@@ -159,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
         custom_pricing = _pricing_override()
         if args.pricing:
             custom_pricing = _parse_pricing_json(args.pricing, "--pricing")
+        budget = _budget_override(getattr(args, "budget", None))
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
@@ -200,7 +227,7 @@ def main(argv: list[str] | None = None) -> int:
         pairs = []
         for s in stats:
             _fill_cost(s, custom_pricing, args.subscription)
-            pairs.append((s, analyze(s)))
+            pairs.append((s, analyze(s, budget)))
         if args.per_session:
             for s, signals in pairs:
                 if args.json:

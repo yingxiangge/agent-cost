@@ -340,10 +340,7 @@ def _process_opencode_event(
         stats.cache_read_tokens += cached
         stats.cache_write_tokens += cache_write
         stats.turns += 1
-        stats.context_samples.append({
-            "turn": stats.turns,
-            "estimated_prompt_tokens": inp + cached + cache_write,
-        })
+        stats.sample_context(inp + cached + cache_write)
         return
 
     # Format 2: OpenCode's native `tokens` dict, as written by the AI SDK.
@@ -381,10 +378,7 @@ def _process_opencode_event(
         stats.cache_read_tokens += cached
         stats.cache_write_tokens += cache_write
         stats.turns += 1
-        stats.context_samples.append({
-            "turn": stats.turns,
-            "estimated_prompt_tokens": inp + cached + cache_write,
-        })
+        stats.sample_context(inp + cached + cache_write)
 
 
 def _parse_opencode_dict(data: dict, stats: SessionStats) -> SessionStats:

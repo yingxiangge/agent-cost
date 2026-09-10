@@ -6,30 +6,30 @@
 
 **Token, cache and context observability — find and stop context bloat in AI coding agents.**
 
-**A 98.7% cache hit rate did not make my coding agent cheap.** Measured across
-82 real Claude Code sessions on one machine (2026-08-23):
+**A 98.9% cache hit rate did not make my coding agent cheap.** Measured across
+88 real Claude Code sessions on one machine (2026-09-10):
 
 ```text
-Prompt tokens     8,690,279,614
-  cache read      8,579,120,394    98.7%
-  cache write       111,034,321
-  genuinely new         124,899    0.0014%
-Output               33,139,293
-Turns                     29,791
+Prompt tokens     3,942,280,650
+  cache read      3,900,634,875    98.9%
+  cache write        41,615,749
+  genuinely new          30,026    0.0008%
+Output               13,094,861
+Turns                     12,937
 ```
 
-**Every turn drags ~292K tokens of context to produce ~1.1K of output — a
-262:1 ratio.** The cache is doing its job; it discounts that prompt rather
+**Every turn drags ~305K tokens of context to produce ~1.0K of output — a
+301:1 ratio.** The cache is doing its job; it discounts that prompt rather
 than shrinking it. A high hit rate does not protect you from unbounded context
 growth, it only changes the unit price.
 
-Where the bulk comes from, over 54.3M characters of transcript:
+Where the bulk comes from, over 15.2M characters of transcript:
 
 ```text
-tool_output   93.9%
-assistant      4.9%
-user           0.8%
-tool_calls     0.1%
+tool_output   76.2%
+assistant     18.5%
+user           3.8%
+tool_calls     0.3%
 ```
 
 `agent-cost` is a read-only CLI that measures this for you, per session or
@@ -57,7 +57,7 @@ agent-cost compare
 
 ### What `agent-cost` tells you immediately
 
-1. **Context Drag Ratio**: Are you dragging 250K tokens of history to generate 1K of code? (The 262:1 ratio problem).
+1. **Context Drag Ratio**: Are you dragging 300K tokens of history to generate 1K of code? (The 301:1 ratio problem).
 2. **Context Anatomy**: Is 90%+ of your context eaten by large tool/bash outputs rather than actual instructions?
 3. **Hidden Waste**: Exact list of files repeatedly read in the same session and duplicate tool outputs.
 
@@ -98,28 +98,28 @@ agent-cost analyze
 ```
 
 ```text
-216 sessions · claude-code, codex, opencode · 35,170 turns
+227 sessions · claude-code, codex, opencode · 19,712 turns
 ──────────────────────────────
-Prompt tokens        8,412,964,990
-  cache read         8,167,485,671    97.1%
-  cache write           98,321,928
-  new                  147,157,391
-Output                  33,501,731
-Per turn        239,209 prompt -> 953 output  (251:1)
-Context growth  19,101 -> 172,630 tokens (x9.0, avg first vs last turn over 198 sessions)
+Prompt tokens        4,654,537,756
+  cache read         4,465,569,133    95.9%
+  cache write           41,889,961
+  new                  147,078,662
+Output                  15,267,511
+Per turn        236,127 prompt -> 775 output  (305:1)
+Context growth  22,245 -> 185,206 tokens (x8.3, avg first vs last turn over 206 sessions)
 
 Where the context comes from
-  tool_output       77.9%
-  assistant         16.9%
-  user               3.3%
+  tool_output       76.2%
+  assistant         17.9%
+  user               4.0%
 
 Tools producing that output
-  Bash              73.9%  (9,722 calls)
-  Read              17.7%  (958 calls)
+  Bash              85.3%  (10,716 calls)
+  Read               8.3%  (470 calls)
 
 Waste signals
-  repeated file reads    168 files across 42 sessions
-  duplicate tool output  97 outputs across 58 sessions
+  repeated file reads    78 files across 25 sessions
+  duplicate tool output  72 outputs across 52 sessions
 ```
 
 Every subcommand takes explicit paths too, and every one of them falls back to
@@ -144,6 +144,46 @@ agent-cost stats ~/.codex/sessions/2026/08/
 # On a Claude Pro/Max subscription: report API-equivalent value, not spend
 agent-cost --subscription compare ~/.claude/projects/
 ```
+
+### Which turn blew up the context, and what did it?
+
+A prompt curve tells you the session got expensive. It does not tell you when,
+or what to stop doing. `--budget` marks the crossings and names the call that
+carried the most output into the worst turn:
+
+```bash
+agent-cost analyze --per-session --budget warning:100k,critical:150k
+```
+
+```text
+Context budget: warning 100K | critical 150K
+  turn    1      27K    +27,363
+  ...
+  turn   50     100K       +898  [warning]
+  ...
+  turn   76     150K       +919  [critical]
+  ...
+  turn  104     232K    +43,493  [critical] biggest jump by Read `notes/BUG_LOG.md`
+  ...
+  turn  282     458K       +724  [critical]
+```
+
+That is one real session, unedited apart from the file path. One full-file
+read of a long append-only log cost more than the previous twenty-five turns
+combined — a habit worth changing, and one nothing in the session surfaced at
+the time.
+
+Only the turns that carry the story are printed: the ends, each first
+crossing, and the biggest jump. Turn 1 is never the biggest jump — its delta
+is the session preamble, which no tool caused and no habit can shrink.
+
+A jump with no tool output behind it is reported as such rather than left
+blank; on this project's own transcripts those turns are per-turn injected
+context and long pasted messages, which is worth knowing too.
+
+Budgets default to `warning:100k,critical:150k` and also read
+`AGENT_COST_BUDGET`. A spec that would set warning at or above critical is
+rejected rather than quietly ignored.
 
 ### Did your change actually help?
 
@@ -179,6 +219,12 @@ the two windows cover different spans, so totals are not comparable — and
 sessions with no timestamp are excluded and counted rather than folded into
 either side. Baselines are plain JSON under `~/.agent-cost/baselines/`;
 `agent-cost baseline --list` shows what you have.
+
+That baseline predates the usage de-duplication fix in 0.6.0, which cut
+Claude Code token and turn counts by roughly half (see CHANGELOG). Both are
+counts, and the rates above divide one by the other, so the percentages here
+still hold to within ~2.4%; only the absolute session and turn totals a
+pre-0.6.0 baseline reports are inflated.
 
 ### Real example (`agent-cost compare`)
 
@@ -302,18 +348,11 @@ is never priced as `gpt-5`.
 - [x] Tool output attribution by call type & type-specific optimization suggestions
 - [x] Detect repeated file reads and duplicated tool output ([#6](https://github.com/yingxiangge/agent-cost/issues/6))
 - [x] `agent-cost baseline` / `agent-cost diff`: did the change actually help?
-- [ ] Budget thresholds on top of a baseline, so a regression is an alert rather than
-  something you notice later ([#7](https://github.com/yingxiangge/agent-cost/issues/7))
+- [x] Budget thresholds, and the tool call behind the worst turn ([#7](https://github.com/yingxiangge/agent-cost/issues/7))
+- [ ] Warn while the session is running, not after it: the same rules as a
+  `PostToolUse` hook, so a 40K-token command is flagged when it happens
 - [ ] Task-level efficiency metrics (useful code changes vs. tool overhead) —
   needs design ([#8](https://github.com/yingxiangge/agent-cost/issues/8))
-
-### Help wanted
-
-Adding a session format is self-contained work with a clear test to write
-against, and it does not need the rest of the codebase in your head:
-
-- [ ] Support Cursor (`composer.json` / workspace state) log formats ([#2](https://github.com/yingxiangge/agent-cost/issues/2))
-- [ ] Support Cline / Roo Code conversation history formats ([#1](https://github.com/yingxiangge/agent-cost/issues/1))
 
 ## Contributing
 

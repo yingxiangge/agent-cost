@@ -270,3 +270,40 @@ def test_opencode_parser_tool_attribution(tmp_path):
     assert signals["tool_breakdown"][0]["tool"] == "ripgrep"
     assert signals["tool_breakdown"][0]["category"] == "search"
     assert "Search/grep output" in " ".join(signals["recommendations"])
+
+
+def test_analyze_survives_empty_source_chars():
+    """Tool fingerprints without source_chars must not crash analyze().
+
+    `ranked` used to be defined only when source_chars was non-empty, while
+    step 3 read it unconditionally: a session carrying tool output but no
+    source breakdown raised UnboundLocalError.
+    """
+    stats = SessionStats(agent="claude-code", session_key="empty-sources")
+    stats.record_tool_output("Bash", 100, content="x")
+    stats.source_chars.clear()
+
+    signals = analyze(stats)
+
+    assert signals["largest_sources"] == []
+    assert signals["tool_breakdown"][0]["tool"] == "Bash"
+
+
+def test_repeated_output_totals_are_per_tool():
+    """`total_chars` on a repeated-output row counts that tool alone.
+
+    The loop variable used to shadow the session-wide source character total,
+    which then decided whether tool output "dominates" the context.
+    """
+    stats = SessionStats(agent="claude-code", session_key="repeat")
+    for _ in range(3):
+        stats.record_tool_output("Bash", 300, content="same-output")
+    stats.record_tool_output("Read", 50, content="unique")
+
+    signals = analyze(stats)
+    rows = {row["tool"]: row for row in signals["repeated_tool_output"]}
+
+    assert rows["Bash"]["total_chars"] == 900
+    assert rows["Bash"]["unique_chars"] == 300
+    assert rows["Bash"]["repeated_chars"] == 600
+    assert "Read" not in rows
