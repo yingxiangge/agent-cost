@@ -214,6 +214,47 @@ The practical rule it implies is not "avoid big output". It is **narrow the
 call early**: the same `sed -n '1,80p'` instead of a full read is worth fifty
 times more on turn 10 than on turn 500.
 
+### Start the next session knowing this
+
+Ranking by carried cost needs to know how many turns followed a call — which is
+only knowable afterwards. So a `PostToolUse` hook cannot compute it: at the
+moment a command runs, nobody knows whether 5 turns or 500 are left.
+
+`advise` turns that around. It measures history and delivers up front:
+
+```bash
+agent-cost advise --limit 5
+```
+
+```text
+# Context cost notes — agent-cost, 94 sessions
+
+Calls ranked by the tokens later turns spent carrying their output. Each
+recurred at least 2x, so they are habits worth changing rather than one-off
+events.
+
+- Read `notes/TODO.md` — 17x, ~7,782 chars each, ~9.3M carried
+- Read `notes/BUG_LOG.md` — 16x, ~8,629 chars each, ~7.1M carried
+- Read `notes/journal.md` — 8x, ~3,692 chars each, ~3.1M carried
+
+What to do differently:
+- File Read: Locate with a search first, then read only the line range you need.
+
+890 recurring calls hold 23% of all carried cost across these sessions.
+```
+
+**A call that happened once cannot be prevented next time; one that happened
+seventeen times can.** Only recurring calls are reported, and on this machine
+those hold 23% of all carried cost.
+
+Paste the output into your project instructions, or run it at session start:
+
+```bash
+agent-cost advise --hook    # prints a Claude Code settings snippet
+```
+
+It prints the snippet; it never edits your settings file for you.
+
 ### Did your change actually help?
 
 Measuring once tells you where the context went. It cannot tell you whether the
@@ -379,10 +420,11 @@ is never priced as `gpt-5`.
 - [x] `agent-cost baseline` / `agent-cost diff`: did the change actually help?
 - [x] Budget thresholds, and the tool call behind the worst turn ([#7](https://github.com/yingxiangge/agent-cost/issues/7))
 - [x] Carried cost: rank calls by output size x turns that carried it after
-- [ ] Warn while the session is running, not after it — as a `PostToolUse`
-  hook. Gated on carried cost, not output size: measurement says size alone
-  flags the wrong 9.4% and would need an exception every time a full read was
-  the right call
+- [x] `agent-cost advise`: recurring expensive calls as notes to start a
+  session with, optionally via a `SessionStart` hook
+- [ ] ~~Warn during the session via `PostToolUse`~~ — carried cost depends on
+  how many turns follow a call, which is unknowable while it runs. Output size
+  is the only thing measurable there, and it flags the wrong 9.4%
 - [ ] Task-level efficiency metrics (useful code changes vs. tool overhead) —
   needs design ([#8](https://github.com/yingxiangge/agent-cost/issues/8))
 

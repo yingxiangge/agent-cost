@@ -14,12 +14,15 @@ from agent_cost.baseline import (
     save_baseline,
     split_by_cutoff,
 )
+from agent_cost.advise import advise
 from agent_cost.compare import compare_sessions
 from agent_cost.discover import describe_locations, discover_paths
 from agent_cost.models import SessionStats
 from agent_cost.parsers.detect import load_path
 from agent_cost.pricing import estimate_session_cost, validate_custom_pricing
 from agent_cost.report import (
+    HOOK_SNIPPET,
+    format_advice,
     format_analyze,
     format_compare,
     format_inspect,
@@ -149,6 +152,31 @@ def main(argv: list[str] | None = None) -> int:
              "or the AGENT_COST_BUDGET environment variable.",
     )
 
+    p_advise = sub.add_parser(
+        "advise",
+        help="Recurring calls that cost the most, as notes to start a session with.",
+    )
+    p_advise.add_argument("paths", nargs="*", help=_PATHS_HELP)
+    p_advise.add_argument(
+        "--limit", type=int, default=8, help="How many habits to report (default: 8)."
+    )
+    p_advise.add_argument(
+        "--min-occurrences",
+        type=int,
+        default=2,
+        help="How often a call must recur to count as a habit (default: 2).",
+    )
+    p_advise.add_argument(
+        "--hook",
+        action="store_true",
+        default=False,
+        help="Print a Claude Code settings snippet that runs this at session start, "
+             "and exit. Nothing is written for you.",
+    )
+    p_advise.add_argument(
+        "--json", action="store_true", default=False, help="Output the habits as JSON."
+    )
+
     p_stats = sub.add_parser("stats", help="Aggregate totals across sessions.")
     p_stats.add_argument("paths", nargs="*", help=_PATHS_HELP)
 
@@ -189,6 +217,10 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
+
+    if args.command == "advise" and args.hook:
+        print(HOOK_SNIPPET)
+        return 0
 
     if args.command == "baseline" and args.list:
         saved = list_baselines()
@@ -246,6 +278,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(summary, ensure_ascii=False))
             else:
                 print(format_summary(summary))
+    elif args.command == "advise":
+        result = advise(
+            stats, limit=args.limit, min_occurrences=args.min_occurrences
+        )
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False))
+        else:
+            print(format_advice(result))
     elif args.command == "baseline":
         pairs = [(s, analyze(s)) for s in stats]
         path = save_baseline(args.label, summarize(pairs))

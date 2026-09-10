@@ -224,6 +224,73 @@ def format_analyze(stats: SessionStats, signals: dict) -> str:
     return "\n".join(lines)
 
 
+# Pasted into a Claude Code settings file, this runs the advice at session
+# start and puts its output in front of the agent. Printed, never written: the
+# settings file is the user's, and a tool that edits it silently is a tool you
+# cannot trust with the rest.
+HOOK_SNIPPET = """{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {"type": "command", "command": "agent-cost advise --limit 5"}
+        ]
+      }
+    ]
+  }
+}"""
+
+
+def format_advice(result: dict) -> str:
+    """Render recurring habits as notes a session can be started with."""
+    if not result["habits"]:
+        return (
+            "No recurring expensive calls found in "
+            f"{result['sessions_analyzed']} session(s) with per-turn attribution. "
+            "Either the sessions are short, or nothing costly repeats yet."
+        )
+
+    share = (
+        result["recurring_carried_tokens"] / result["total_carried_tokens"]
+        if result["total_carried_tokens"]
+        else 0.0
+    )
+    lines = [
+        f"# Context cost notes — agent-cost, {result['sessions_analyzed']} sessions",
+        "",
+        "Calls ranked by the tokens later turns spent carrying their output. Each "
+        f"recurred at least {result['min_occurrences']}x, so they are habits worth "
+        "changing rather than one-off events.",
+        "",
+    ]
+    for habit in result["habits"]:
+        label = (
+            f"{habit['tool']} `{habit['detail']}`" if habit["detail"] else habit["tool"]
+        )
+        lines.append(
+            f"- {label} — {habit['occurrences']}x, "
+            f"~{habit['avg_output_chars']:,} chars each, "
+            f"~{_fmt_tokens(habit['carried_tokens'])} carried"
+        )
+
+    # One line per category rather than per habit: the advice depends on the
+    # kind of call, so repeating it under every file read is pure noise.
+    seen: dict[str, str] = {}
+    for habit in result["habits"]:
+        seen.setdefault(habit["category_label"], habit["advice"])
+    lines.append("")
+    lines.append("What to do differently:")
+    for label, advice in seen.items():
+        lines.append(f"- {label}: {advice}")
+    lines.append("")
+    lines.append(
+        f"{result['habit_count']:,} recurring calls hold {share * 100:.0f}% of all "
+        "carried cost across these sessions."
+    )
+    return "\n".join(lines)
+
+
 def format_stats_table(rows: list[SessionStats]) -> str:
     header = f"{'AGENT':<12} {'TOTAL TOKENS':>14} {'CACHED %':>9} {'TOOL CALLS':>11} {'EST. USD':>10}  SESSION"
     lines = [header, "-" * len(header)]

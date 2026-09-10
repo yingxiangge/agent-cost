@@ -28,9 +28,13 @@ CHARS_PER_TOKEN = 4
 def carried_cost(stats: SessionStats, limit: int = 5) -> dict | None:
     """Rank tool calls by what their output cost after the turn that used it.
 
-    Returns None when the session carries no per-turn attribution -- parsers
-    that cannot see individual calls, or samples recorded before attribution
-    existed. `turns_after` deliberately excludes the turn that requested the
+    Returns None when no sample carries tool attribution: a transcript whose
+    tool results are not visible between usage records, or samples recorded
+    before attribution existed. Measured across real sessions, Claude Code
+    transcripts attribute 88% of samples and name the argument on 99% of those,
+    while Codex attributes the tool but never the argument.
+
+    `turns_after` deliberately excludes the turn that requested the
     output: that turn is the reason the call was made, and only the repeats
     after it are the part a different habit could have avoided.
     """

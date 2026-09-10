@@ -5,6 +5,33 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-09-10
+
+### Added
+- **`agent-cost advise`: the recurring calls that cost the most, as notes to
+  start a session with.** Aggregates carried cost across sessions by the call
+  itself (tool plus argument) and reports only what recurs — a call that
+  happened once cannot be prevented next time, one that happened seventeen
+  times can. On this project's transcripts the recurring calls hold 23% of all
+  carried cost, led by the same three files read in full over and over.
+  `--hook` prints a Claude Code `SessionStart` settings snippet; it is printed,
+  never written, because the settings file is the user's.
+
+  Advice text is derived from the same tool classifier the analysis uses, so a
+  tool name never seen before inherits its category's advice instead of falling
+  through to nothing, and one line is printed per category rather than repeated
+  under every habit.
+
+### Notes
+- **A `PostToolUse` hook cannot rank by carried cost, and will not be added.**
+  Carried cost is output size multiplied by the turns that follow a call, and
+  at the moment a command runs nobody knows whether 5 turns or 500 remain. The
+  only thing measurable there is output size, and measurement says that flags
+  the wrong calls: calls above 10K characters are 0.55% of calls and 9.4% of
+  output, and every threshold on them needs an exception for the times a full
+  read was the right call. Measuring afterwards and delivering up front —
+  `advise` — is what the data supports.
+
 ## [0.7.0] - 2026-09-10
 
 ### Added
@@ -24,8 +51,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   20% of it, and a 4K-character command early outranks a 20K one late. The
   actionable rule is to narrow calls early, not to avoid large output.
 
-  Sessions without per-turn attribution (Codex, OpenCode, Hermes, and samples
-  recorded before 0.6.0) report nothing here rather than a guess.
+  Samples that carry no tool attribution -- including everything recorded
+  before 0.6.0 -- report nothing here rather than a guess. Measured on real
+  sessions, Claude Code transcripts attribute 88% of samples and name the
+  argument on 99% of those; Codex attributes the tool but never the argument,
+  so its calls are listed by tool name alone.
 
 ## [0.6.0] - 2026-09-10
 
@@ -283,7 +313,8 @@ First public release.
 - Read-only guarantee: session files are opened and counted, never executed,
   modified, or transmitted (see `SECURITY.md`).
 
-[Unreleased]: https://github.com/yingxiangge/agent-cost/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/yingxiangge/agent-cost/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/yingxiangge/agent-cost/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/yingxiangge/agent-cost/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/yingxiangge/agent-cost/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/yingxiangge/agent-cost/compare/v0.4.0...v0.5.0
